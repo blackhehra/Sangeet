@@ -236,7 +236,14 @@ class _DesktopPlayerBarState extends ConsumerState<DesktopPlayerBar> {
                                       shape: BoxShape.circle,
                                     ),
                                     child: IconButton(
-                                      onPressed: () => audioService.togglePlayPause(),
+                                      onPressed: () {
+                                        // Handle restored track - resume from saved position
+                                        if (audioService.hasRestoredTrack && !playing) {
+                                          audioService.resumeFromRestored();
+                                        } else {
+                                          audioService.togglePlayPause();
+                                        }
+                                      },
                                       icon: Icon(
                                         playing ? Icons.pause : Icons.play_arrow,
                                         color: Colors.black,
@@ -438,6 +445,18 @@ class _EmptyPlayerBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox.shrink();
+    return Container(
+      height: 90,
+      color: const Color(0xFF181818),
+      child: Center(
+        child: Text(
+          'No track playing',
+          style: TextStyle(
+            color: Colors.grey.shade600,
+            fontSize: 14,
+          ),
+        ),
+      ),
+    );
   }
 }

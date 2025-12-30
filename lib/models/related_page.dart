@@ -1,6 +1,6 @@
 import 'package:sangeet/models/track.dart';
 
-/// Related page model - like ViMusic's Innertube.RelatedPage
+/// Related page model for personalized recommendations
 /// Contains personalized recommendations based on a seed song
 class RelatedPage {
   final List<Track>? songs;
@@ -139,7 +139,7 @@ class RelatedArtist {
   );
 }
 
-/// Discover page model - like ViMusic's Innertube.DiscoverPage
+/// Discover page model for trending content
 /// Contains global trending content (not personalized)
 class DiscoverPage {
   final List<RelatedAlbum> newReleaseAlbums;
@@ -169,7 +169,7 @@ class DiscoverPage {
   );
 }
 
-/// Mood/Genre item - like ViMusic's Innertube.Mood.Item
+/// Mood/Genre item for browse categories
 class MoodItem {
   final String title;
   final String browseId;
@@ -221,7 +221,7 @@ class TrendingSection {
   );
 }
 
-/// Artist page model - like ViMusic's Innertube.ArtistPage
+/// Artist page model with artist info and content
 /// Contains artist info, top songs, albums, and singles
 class ArtistPage {
   final String? name;
@@ -251,7 +251,7 @@ class ArtistPage {
   });
 }
 
-/// Album/Playlist page model - like ViMusic's Innertube.PlaylistOrAlbumPage
+/// Album/Playlist page model with tracks and metadata
 class AlbumPage {
   final String? title;
   final String? description;

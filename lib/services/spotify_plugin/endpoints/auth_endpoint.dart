@@ -28,7 +28,7 @@ class SpotifyAuthEndpoint {
   bool _hasApiFailure = false;
   
   SpotifyAuthEndpoint(this._hetu) {
-    // Listen to plugin's auth state stream for reactive updates (like Spotube)
+    // Listen to plugin's auth state stream for reactive updates
     _initPluginAuthStream();
   }
   

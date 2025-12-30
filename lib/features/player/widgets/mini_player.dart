@@ -86,9 +86,17 @@ class MiniPlayer extends ConsumerWidget {
         return GestureDetector(
           onTap: () => _openFullPlayer(context),
           onVerticalDragEnd: (details) {
-            // Swipe up to open full player
-            if (details.primaryVelocity != null && details.primaryVelocity! < -300) {
-              _openFullPlayer(context);
+            if (details.primaryVelocity != null) {
+              // Swipe up to open full player
+              if (details.primaryVelocity! < -300) {
+                _openFullPlayer(context);
+              }
+              // Swipe down to clear track and close mini player
+              else if (details.primaryVelocity! > 300) {
+                final audioService = ref.read(audioPlayerServiceProvider);
+                audioService.stop();
+                audioService.clearQueue();
+              }
             }
           },
           child: Container(
@@ -137,7 +145,7 @@ class MiniPlayer extends ConsumerWidget {
                             fit: BoxFit.cover,
                             memCacheWidth: 720,
                             memCacheHeight: 720,
-                            // Fallback to hqdefault if maxresdefault fails (like ViMusic)
+                            // Fallback to hqdefault if maxresdefault fails
                             errorWidget: (context, url, error) => CachedNetworkImage(
                               imageUrl: url.contains('maxresdefault.jpg') 
                                   ? url.replaceAll('maxresdefault.jpg', 'hqdefault.jpg')
@@ -207,7 +215,12 @@ class MiniPlayer extends ConsumerWidget {
                             IconButton(
                               onPressed: () {
                                 final audioService = ref.read(audioPlayerServiceProvider);
-                                audioService.togglePlayPause();
+                                // Check if this is a restored track that needs special handling
+                                if (audioService.hasRestoredTrack && !playing) {
+                                  audioService.resumeFromRestored();
+                                } else {
+                                  audioService.togglePlayPause();
+                                }
                               },
                               icon: Icon(
                                 playing ? Iconsax.pause5 : Iconsax.play5,

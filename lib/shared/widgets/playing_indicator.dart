@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:sangeet/core/theme/app_theme.dart';
 
-/// Animated equalizer bars indicator for currently playing song (like Spotify)
+/// Animated equalizer bars indicator for currently playing song
 class PlayingIndicator extends StatefulWidget {
   final Color? color;
   final double size;

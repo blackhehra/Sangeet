@@ -8,6 +8,8 @@ import 'package:sangeet/services/settings_service.dart';
 import 'package:sangeet/services/play_history_service.dart';
 import 'package:sangeet/services/audio_handler_service.dart';
 import 'package:sangeet/services/track_matcher_service.dart';
+import 'package:sangeet/services/playback_state_service.dart';
+import 'package:sangeet/services/ytmusic/yt_music_service.dart';
 
 enum RepeatMode { off, all, one }
 
@@ -22,6 +24,10 @@ class AudioPlayerService {
   late final Player _player;
   final StreamingServer _streamingServer = StreamingServer();
   final PlayHistoryService _historyService = PlayHistoryService.instance;
+  final PlaybackStateService _playbackStateService = PlaybackStateService.instance;
+  
+  // Timer for periodic state saving
+  Timer? _stateSaveTimer;
   SangeetAudioHandler? _audioHandler;
   
   // Track play time for history
@@ -55,14 +61,33 @@ class AudioPlayerService {
   final _durationController = StreamController<Duration>.broadcast();
   final _bufferingController = StreamController<bool>.broadcast();
   final _queueController = StreamController<List<Track>>.broadcast();
+  
+  // Last known position/duration for restored tracks (so streams can emit initial value)
+  Duration _lastKnownPosition = Duration.zero;
+  Duration _lastKnownDuration = Duration.zero;
 
-  // Getters for streams
-  Stream<Track?> get currentTrackStream => _currentTrackController.stream;
-  Stream<bool> get playingStream => _playingController.stream;
-  Stream<Duration> get positionStream => _positionController.stream;
-  Stream<Duration> get durationStream => _durationController.stream;
+  // Getters for streams - emit current value immediately then stream updates
+  Stream<Track?> get currentTrackStream async* {
+    yield currentTrack; // Emit current value first
+    yield* _currentTrackController.stream;
+  }
+  Stream<bool> get playingStream async* {
+    yield isPlaying;
+    yield* _playingController.stream;
+  }
+  Stream<Duration> get positionStream async* {
+    yield _lastKnownPosition; // Emit last known position first (for restored tracks)
+    yield* _positionController.stream;
+  }
+  Stream<Duration> get durationStream async* {
+    yield _lastKnownDuration; // Emit last known duration first (for restored tracks)
+    yield* _durationController.stream;
+  }
   Stream<bool> get bufferingStream => _bufferingController.stream;
-  Stream<List<Track>> get queueStream => _queueController.stream;
+  Stream<List<Track>> get queueStream async* {
+    yield queue;
+    yield* _queueController.stream;
+  }
 
   // Getters for current state
   Track? get currentTrack => _currentIndex >= 0 && _currentIndex < _queue.length 
@@ -156,6 +181,7 @@ class AudioPlayerService {
     });
 
     _player.stream.position.listen((position) {
+      _lastKnownPosition = position; // Keep track of last known position
       _positionController.add(position);
       
       // Update lock screen position (throttle to avoid too many updates)
@@ -169,6 +195,7 @@ class AudioPlayerService {
 
     _player.stream.duration.listen((duration) {
       print('AudioPlayer: Duration changed: $duration');
+      _lastKnownDuration = duration; // Keep track of last known duration
       _durationController.add(duration);
     });
 
@@ -202,9 +229,36 @@ class AudioPlayerService {
         _recordPlayTime();
       }
     });
+    
+    // Start periodic state saving (every 10 seconds while playing)
+    _startStateSaveTimer();
+  }
+  
+  /// Start timer to periodically save playback state
+  void _startStateSaveTimer() {
+    _stateSaveTimer?.cancel();
+    _stateSaveTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      // Only save state when actually playing
+      if (isPlaying) {
+        _saveCurrentState();
+      }
+    });
+  }
+  
+  /// Save current playback state for restoration on next app launch
+  Future<void> _saveCurrentState() async {
+    final track = currentTrack;
+    if (track == null) return;
+    
+    await _playbackStateService.savePlaybackState(
+      track: track,
+      position: position,
+      queue: _queue,
+      queueIndex: _currentIndex,
+    );
   }
 
-  /// Record play time to history service (like ViMusic Event tracking)
+  /// Record play time to history service
   void _recordPlayTime() {
     if (_currentPlayingId != null && _playStartTime != null) {
       final playTimeMs = DateTime.now().difference(_playStartTime!).inMilliseconds;
@@ -393,7 +447,27 @@ class AudioPlayerService {
   Future<void> _playCurrentTrack({int retryCount = 0}) async {
     if (_currentIndex < 0 || _currentIndex >= _queue.length) return;
 
-    final track = _queue[_currentIndex];
+    var track = _queue[_currentIndex];
+    
+    // Check if track needs YouTube matching (Spotify ID is not 11 chars)
+    if (track.id.length != 11) {
+      print('AudioPlayer: Track "${track.title}" has non-YouTube ID (${track.id.length} chars), matching...');
+      final matchedTrack = await _matchTrackToYouTube(track);
+      if (matchedTrack != null) {
+        track = matchedTrack;
+        // Update the queue with matched track so future plays are instant
+        _queue[_currentIndex] = track;
+        _queueController.add(_queue);
+      } else {
+        print('AudioPlayer: Failed to match track to YouTube, skipping...');
+        _bufferingController.add(false);
+        if (_queue.length > 1 && _currentIndex < _queue.length - 1) {
+          await skipToNext();
+        }
+        return;
+      }
+    }
+    
     print('AudioPlayer: Playing track: ${track.title} (ID: ${track.id})');
     _currentTrackController.add(track);
     _bufferingController.add(true);
@@ -413,7 +487,7 @@ class AudioPlayerService {
     // Set a timeout to prevent infinite loading
     const timeoutDuration = Duration(seconds: 30);
 
-    // Record play start for history (like ViMusic Event tracking)
+    // Record play start for history
     _recordPlayTime(); // Record previous track's play time first
     _currentPlayingId = track.id;
     _playStartTime = DateTime.now();
@@ -484,7 +558,7 @@ class AudioPlayerService {
       // Ensure streaming server is running
       await _streamingServer.start();
       
-      // Check if audio is cached on disk - instant playback like ViMusic
+      // Check if audio is cached on disk - instant playback
       final isCached = await _streamingServer.isAudioCached(track.id);
       
       if (isCached) {
@@ -517,11 +591,62 @@ class AudioPlayerService {
       await _player.play();
       print('AudioPlayer: Playback started');
       
-      // Prefetch next track in background for faster loading (like ViMusic)
+      // Prefetch next track in background for faster loading
       _prefetchNextTrack();
     } catch (e) {
       print('AudioPlayer: Error in _attemptPlayback: $e');
       rethrow;
+    }
+  }
+
+  /// Match a track to YouTube by its metadata (title/artist)
+  /// Used for imported Spotify playlists where tracks have Spotify IDs
+  /// Returns matched track with YouTube ID, or null if no match found
+  Future<Track?> _matchTrackToYouTube(Track track) async {
+    final trackMatcher = TrackMatcherService();
+    
+    // Check if already cached (Spotify ID -> YouTube track)
+    final cachedTrack = trackMatcher.getMatchedTrack(track.id);
+    if (cachedTrack != null) {
+      print('AudioPlayer: Cache hit for "${track.title}" -> YouTube ID: ${cachedTrack.id}');
+      return cachedTrack;
+    }
+    
+    try {
+      // Search YouTube for this track by title and artist
+      print('AudioPlayer: Searching YouTube for "${track.title}" by "${track.artist}"');
+      
+      // Use YT Music service to search
+      final ytMusicService = YtMusicService();
+      final query = '${track.title} ${track.artist}';
+      final results = await ytMusicService.searchSongs(query);
+      
+      if (results.isEmpty) {
+        print('AudioPlayer: No YouTube results for "${track.title}"');
+        return null;
+      }
+      
+      // Take the best match (first result)
+      final bestMatch = results.first;
+      print('AudioPlayer: Matched "${track.title}" -> "${bestMatch.title}" [${bestMatch.id}]');
+      
+      // Create new track with YouTube ID but keep original metadata
+      final matchedTrack = Track(
+        id: bestMatch.id, // YouTube ID for playback
+        title: track.title, // Keep original title
+        artist: track.artist, // Keep original artist
+        album: track.album,
+        thumbnailUrl: track.thumbnailUrl ?? bestMatch.thumbnailUrl,
+        duration: track.duration,
+      );
+      
+      // Cache the match (Spotify ID -> YouTube track) for future plays
+      await trackMatcher.saveMatchToCache(track.id, matchedTrack);
+      
+      return matchedTrack;
+    } catch (e) {
+      print('AudioPlayer: Error matching track to YouTube: $e');
+      return null;
     }
   }
 
@@ -533,6 +658,8 @@ class AudioPlayerService {
   /// Pause playback
   Future<void> pause() async {
     await _player.pause();
+    // Save state when pausing so it can be restored on app restart
+    await _saveCurrentState();
   }
 
   /// Toggle play/pause
@@ -672,7 +799,7 @@ class AudioPlayerService {
     _streamingServer.setAudioQuality(quality);
   }
 
-  /// Prefetch next track in background for faster loading (like ViMusic)
+  /// Prefetch next track in background for faster loading
   void _prefetchNextTrack() {
     if (_queue.isEmpty) return;
     
@@ -702,8 +829,181 @@ class AudioPlayerService {
     }
   }
 
+  /// Restore last played track from saved state (call on app startup)
+  /// Returns true if a track was restored
+  Future<bool> restoreLastPlayedTrack() async {
+    try {
+      await _playbackStateService.init();
+      
+      if (!_playbackStateService.hasSavedState()) {
+        print('AudioPlayer: No saved state to restore');
+        return false;
+      }
+      
+      final savedState = _playbackStateService.getSavedState();
+      if (savedState == null || savedState.track == null) {
+        return false;
+      }
+      
+      final track = savedState.track!;
+      final position = savedState.position;
+      final queue = savedState.queue;
+      final queueIndex = savedState.queueIndex;
+      
+      print('AudioPlayer: Restoring "${track.title}" at ${position.inSeconds}s');
+      
+      // Restore queue if available
+      if (queue != null && queue.isNotEmpty) {
+        _queue.clear();
+        _queue.addAll(queue);
+        _currentIndex = queueIndex.clamp(0, queue.length - 1);
+        _queueController.add(_queue);
+      } else {
+        // Just restore single track
+        _queue.clear();
+        _queue.add(track);
+        _currentIndex = 0;
+        _queueController.add(_queue);
+      }
+      
+      // Update UI with restored track (but don't start playing)
+      _currentTrackController.add(track);
+      
+      // Update lock screen notification
+      await _audioHandler?.setCurrentTrack(track);
+      
+      // Store the position to seek to when user presses play
+      _restoredPosition = position;
+      _isRestoredTrackPending = true; // Mark that we have a pending restored track
+      
+      // Store and emit the restored position and duration to UI so progress bar shows correctly
+      _lastKnownPosition = position;
+      _lastKnownDuration = track.duration;
+      _positionController.add(position);
+      _durationController.add(track.duration);
+      
+      print('AudioPlayer: Restored state - ready to resume from ${position.inSeconds}s');
+      return true;
+    } catch (e) {
+      print('AudioPlayer: Error restoring state: $e');
+      return false;
+    }
+  }
+  
+  // Position to seek to after restoration
+  Duration? _restoredPosition;
+  
+  // Flag to track if we have a restored track that hasn't been loaded into player yet
+  bool _isRestoredTrackPending = false;
+  
+  /// Resume playback from restored position
+  Future<void> resumeFromRestored() async {
+    if (currentTrack == null) {
+      print('AudioPlayer: No current track to resume');
+      return;
+    }
+    
+    final seekPosition = _restoredPosition;
+    _restoredPosition = null; // Clear so it only seeks once
+    _isRestoredTrackPending = false; // Mark as no longer pending
+    
+    if (seekPosition != null && seekPosition.inSeconds > 0) {
+      print('AudioPlayer: Resuming from restored position ${seekPosition.inSeconds}s');
+      // Play the track with the saved position
+      await _playCurrentTrackAtPosition(seekPosition);
+    } else {
+      print('AudioPlayer: Resuming restored track from beginning');
+      await _playCurrentTrack();
+    }
+  }
+  
+  /// Play current track and seek to a specific position once loaded
+  Future<void> _playCurrentTrackAtPosition(Duration startPosition) async {
+    if (_currentIndex < 0 || _currentIndex >= _queue.length) return;
+
+    var track = _queue[_currentIndex];
+    
+    // Check if track needs YouTube matching (Spotify ID is not 11 chars)
+    if (track.id.length != 11) {
+      print('AudioPlayer: Track "${track.title}" has non-YouTube ID, matching...');
+      final matchedTrack = await _matchTrackToYouTube(track);
+      if (matchedTrack != null) {
+        track = matchedTrack;
+        _queue[_currentIndex] = track;
+        _queueController.add(_queue);
+      } else {
+        print('AudioPlayer: Failed to match track to YouTube');
+        return;
+      }
+    }
+    
+    print('AudioPlayer: Playing track at position ${startPosition.inSeconds}s: ${track.title}');
+    _currentTrackController.add(track);
+    _bufferingController.add(true);
+    
+    // Initialize audio handler if needed
+    if (_audioHandler == null) {
+      await initAudioHandler();
+    }
+    await _audioHandler?.setCurrentTrack(track);
+    _audioHandler?.updateBuffering(true);
+    
+    // Record play start for history
+    _recordPlayTime();
+    _currentPlayingId = track.id;
+    _playStartTime = DateTime.now();
+    await _historyService.recordPlayStart(track);
+
+    try {
+      await _streamingServer.start();
+      
+      // Check if cached
+      final isCached = await _streamingServer.isAudioCached(track.id);
+      
+      if (!isCached) {
+        // Pre-fetch stream first
+        print('AudioPlayer: Pre-fetching stream...');
+        final success = await _streamingServer.prefetchStream(track.id);
+        if (!success) {
+          print('AudioPlayer: Failed to pre-fetch stream');
+          throw Exception('Failed to pre-fetch stream');
+        }
+      }
+      
+      final streamUrl = _streamingServer.getStreamUrl(track.id);
+      print('AudioPlayer: Opening media at $streamUrl');
+      
+      // Open the media and start playing
+      await _player.open(Media(streamUrl), play: true);
+      
+      // Wait for duration to be available (indicates stream is ready)
+      int attempts = 0;
+      while (_player.state.duration == Duration.zero && attempts < 20) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        attempts++;
+      }
+      
+      // Now seek to the saved position
+      print('AudioPlayer: Seeking to ${startPosition.inSeconds}s (duration: ${_player.state.duration.inSeconds}s)');
+      await _player.seek(startPosition);
+      
+      print('AudioPlayer: Playback started at ${startPosition.inSeconds}s');
+      _prefetchNextTrack();
+    } catch (e) {
+      print('AudioPlayer: Error playing track at position: $e');
+      _bufferingController.add(false);
+      // Fallback to regular playback
+      await _playCurrentTrack();
+    }
+  }
+  
+  /// Check if there's a restored track ready to play (track restored but not yet loaded into player)
+  bool get hasRestoredTrack => _isRestoredTrackPending;
+
   /// Dispose resources
   void dispose() {
+    _stateSaveTimer?.cancel();
+    _saveCurrentState(); // Save state before disposing
     _player.dispose();
     _currentTrackController.close();
     _playingController.close();

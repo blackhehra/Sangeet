@@ -123,6 +123,25 @@ class CustomPlaylistService {
     print('CustomPlaylistService: Removed track from playlist "$playlistId"');
   }
 
+  /// Update a specific track in playlist (e.g., to add thumbnail)
+  Future<void> updateTrackInPlaylist(String playlistId, int trackIndex, Track updatedTrack) async {
+    final index = _playlists.indexWhere((p) => p.id == playlistId);
+    if (index == -1) return;
+
+    final playlist = _playlists[index];
+    if (trackIndex < 0 || trackIndex >= playlist.tracks.length) return;
+
+    final tracks = List<Track>.from(playlist.tracks);
+    tracks[trackIndex] = updatedTrack;
+
+    _playlists[index] = playlist.copyWith(
+      tracks: tracks,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+
+    await _savePlaylists();
+  }
+
   /// Reorder tracks in playlist
   Future<void> reorderTracks(String playlistId, int oldIndex, int newIndex) async {
     final index = _playlists.indexWhere((p) => p.id == playlistId);
@@ -144,6 +163,59 @@ class CustomPlaylistService {
     );
 
     await _savePlaylists();
+  }
+
+  /// Add multiple tracks to playlist at once
+  /// Returns the number of tracks successfully added (skips duplicates)
+  Future<int> addTracksToPlaylist(String playlistId, List<Track> tracks) async {
+    final index = _playlists.indexWhere((p) => p.id == playlistId);
+    if (index == -1) return 0;
+
+    final playlist = _playlists[index];
+    final existingIds = playlist.tracks.map((t) => t.id).toSet();
+    
+    // Filter out duplicates
+    final newTracks = tracks.where((t) => !existingIds.contains(t.id)).toList();
+    
+    if (newTracks.isEmpty) {
+      print('CustomPlaylistService: All tracks already in playlist');
+      return 0;
+    }
+
+    final updatedTracks = [...playlist.tracks, ...newTracks];
+    _playlists[index] = playlist.copyWith(
+      tracks: updatedTracks,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+
+    await _savePlaylists();
+    print('CustomPlaylistService: Added ${newTracks.length} tracks to playlist "$playlistId"');
+    return newTracks.length;
+  }
+
+  /// Import a Spotify playlist - creates a new playlist with the given tracks
+  /// Returns the created playlist
+  Future<CustomPlaylist> importSpotifyPlaylist({
+    required String name,
+    required List<Track> tracks,
+    String? description,
+    String? imageUrl,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final playlist = CustomPlaylist(
+      id: 'imported_${now}_${name.hashCode}',
+      name: name,
+      description: description ?? 'Imported from Spotify',
+      tracks: tracks,
+      createdAt: now,
+      updatedAt: now,
+      imageUrl: imageUrl,
+    );
+
+    _playlists.add(playlist);
+    await _savePlaylists();
+    print('CustomPlaylistService: Imported playlist "$name" with ${tracks.length} tracks');
+    return playlist;
   }
 
   // Private methods

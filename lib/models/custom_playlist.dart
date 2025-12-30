@@ -8,6 +8,7 @@ class CustomPlaylist {
   final List<Track> tracks;
   final int createdAt;
   final int updatedAt;
+  final String? imageUrl;
 
   const CustomPlaylist({
     required this.id,
@@ -16,6 +17,7 @@ class CustomPlaylist {
     required this.tracks,
     required this.createdAt,
     required this.updatedAt,
+    this.imageUrl,
   });
 
   CustomPlaylist copyWith({
@@ -25,6 +27,7 @@ class CustomPlaylist {
     List<Track>? tracks,
     int? createdAt,
     int? updatedAt,
+    String? imageUrl,
   }) {
     return CustomPlaylist(
       id: id ?? this.id,
@@ -33,6 +36,7 @@ class CustomPlaylist {
       tracks: tracks ?? this.tracks,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      imageUrl: imageUrl ?? this.imageUrl,
     );
   }
 
@@ -44,6 +48,7 @@ class CustomPlaylist {
       'tracks': tracks.map((t) => t.toJson()).toList(),
       'createdAt': createdAt,
       'updatedAt': updatedAt,
+      'imageUrl': imageUrl,
     };
   }
 
@@ -58,6 +63,7 @@ class CustomPlaylist {
           [],
       createdAt: json['createdAt'] as int,
       updatedAt: json['updatedAt'] as int,
+      imageUrl: json['imageUrl'] as String?,
     );
   }
 }

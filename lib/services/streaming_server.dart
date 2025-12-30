@@ -12,14 +12,14 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:sangeet/services/settings_service.dart';
 import 'package:sangeet/services/innertube/innertube_service.dart';
 
-/// YouTube API clients to try (same as Spotube)
+/// API clients to try for stream resolution
 final _ytClients = [
   YoutubeApiClient.ios,
   YoutubeApiClient.android,
   YoutubeApiClient.androidVr,
 ];
 
-/// Cached stream URL data (like ViMusic's UriCache)
+/// Cached stream URL data
 class _CachedStream {
   final String url;
   final String userAgent;
@@ -51,10 +51,10 @@ class _StreamResult {
   });
 }
 
-/// Audio disk cache with LRU eviction (like ViMusic's SimpleCache)
+/// Audio disk cache with LRU eviction
 class _AudioDiskCache {
   static const int _defaultMaxSizeBytes = 512 * 1024 * 1024; // 512MB default
-  static const int _chunkSize = 512 * 1024; // 512KB chunks like ViMusic
+  static const int _chunkSize = 512 * 1024; // 512KB chunks
   
   Directory? _cacheDir;
   int _maxSizeBytes;
@@ -227,8 +227,8 @@ class _AudioDiskCache {
   }
 }
 
-/// A local HTTP server that proxies YouTube audio streams.
-/// Follows Spotube's approach: pre-fetch stream URLs before playback.
+/// A local HTTP server that proxies audio streams.
+/// Pre-fetches stream URLs before playback for reliability.
 class StreamingServer {
   static final StreamingServer _instance = StreamingServer._internal();
   factory StreamingServer() => _instance;
@@ -240,10 +240,10 @@ class StreamingServer {
   final YoutubeExplode _yt = YoutubeExplode();
   final InnertubeService _innertube = InnertubeService();
   
-  // URL cache for pre-fetched stream URLs - 24 hour expiry like ViMusic
+  // URL cache for pre-fetched stream URLs - 24 hour expiry
   final Map<String, _CachedStream> _streamCache = {};
   
-  // Audio disk cache with LRU eviction like ViMusic
+  // Audio disk cache with LRU eviction
   final _AudioDiskCache _audioCache = _AudioDiskCache();
   bool _audioCacheInitialized = false;
   
@@ -435,7 +435,7 @@ class StreamingServer {
         return null;
       }
       
-      // Select audio stream - prefer itag 251 (Opus) or 140 (AAC) like ViMusic
+      // Select audio stream - prefer itag 251 (Opus) or 140 (AAC)
       // itag 251: Opus ~160kbps VBR - best quality for music, better bass
       // itag 140: AAC 128kbps - good fallback
       final audioStreams = manifest.audioOnly.toList();
@@ -526,7 +526,7 @@ class StreamingServer {
       return;
     }
     
-    // Initialize audio disk cache (like ViMusic's SimpleCache)
+    // Initialize audio disk cache
     if (!_audioCacheInitialized) {
       await _audioCache.init();
       _audioCacheInitialized = true;
@@ -656,7 +656,7 @@ class StreamingServer {
     try {
       print('StreamingServer: GET request for $videoId');
       
-      // Check disk cache first (like ViMusic) - instant playback for cached songs
+      // Check disk cache first - instant playback for cached songs
       final cachedPath = await _audioCache.getCachedPath(videoId);
       if (cachedPath != null) {
         print('StreamingServer: Serving from disk cache');
@@ -762,7 +762,7 @@ class StreamingServer {
         return shelf.Response.internalServerError(body: 'No stream data');
       }
       
-      // Cache audio to disk in background (like ViMusic) - only for full requests (no range)
+      // Cache audio to disk in background - only for full requests (no range)
       if (rangeHeader == null && cached.contentLength != null) {
         _cacheAudioInBackground(videoId, cached.url, cached.userAgent);
       }
@@ -798,7 +798,7 @@ class StreamingServer {
     }
   }
   
-  /// Cache audio to disk in background (like ViMusic's chunked caching)
+  /// Cache audio to disk in background
   void _cacheAudioInBackground(String videoId, String url, String userAgent) {
     // Fire and forget - don't block playback
     Future(() async {

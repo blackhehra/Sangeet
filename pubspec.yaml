@@ -25,9 +25,10 @@ dependencies:
   # Icons
   iconsax: ^0.0.8
   
-  # Audio Player
+  # Audio/Video Player (media_kit_libs_video includes audio support)
   media_kit: ^1.1.11
-  media_kit_libs_audio: ^1.0.5
+  media_kit_video: ^1.2.5
+  media_kit_libs_video: ^1.0.5
   audio_service: ^0.18.15
   audio_session: ^0.1.21
   
@@ -44,6 +45,13 @@ dependencies:
   rxdart: ^0.28.0
   url_launcher: ^6.2.5
   package_info_plus: ^4.2.0
+  
+  # Sharing
+  share_plus: ^7.2.0
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^3.5.0
+  app_links: ^3.5.0
+  file_picker: ^8.0.0
   
   # Lyrics
   lrc: ^1.0.2
@@ -121,6 +129,7 @@ flutter:
   
   assets:
     - assets/images/
+    - assets/videos/
     - LICENSE
     # Hetu script bytecode files
     - packages/hetu_std/assets/bytecode/std.out

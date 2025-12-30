@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:iconsax/iconsax.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:sangeet/core/theme/app_theme.dart';
 import 'package:sangeet/services/user_preferences_service.dart';
+import 'package:sangeet/services/ytmusic/yt_music_service.dart' as ytmusic;
 
 class ArtistSelectionPage extends ConsumerStatefulWidget {
   final List<MusicLanguage> selectedLanguages;
@@ -21,6 +23,7 @@ class _ArtistSelectionPageState extends ConsumerState<ArtistSelectionPage> {
   final Set<String> _selectedArtists = {};
   final Map<String, String> _artistImages = {};
   bool _isLoading = false;
+  bool _isLoadingImages = true;
 
   @override
   void initState() {
@@ -29,40 +32,38 @@ class _ArtistSelectionPageState extends ConsumerState<ArtistSelectionPage> {
   }
 
   Future<void> _loadArtistImages() async {
-    // Pre-populate with some known artist images
-    // In production, you'd fetch these from an API
-    _artistImages.addAll({
-      // Hindi
-      'Arijit Singh': 'https://i.scdn.co/image/ab6761610000e5eb0261696c5df3be99da6ed3f3',
-      'Shreya Ghoshal': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Neha Kakkar': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Atif Aslam': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Jubin Nautiyal': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Badshah': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Honey Singh': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Armaan Malik': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Darshan Raval': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'B Praak': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Guru Randhawa': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Sonu Nigam': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      // Punjabi
-      'Sidhu Moose Wala': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Diljit Dosanjh': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'AP Dhillon': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Karan Aujla': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Ammy Virk': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Harrdy Sandhu': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Shubh': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      // English
-      'Taylor Swift': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Ed Sheeran': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'The Weeknd': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Drake': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Dua Lipa': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'Billie Eilish': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'BTS': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-      'BLACKPINK': 'https://i.scdn.co/image/ab6761610000e5eb5c0a4dc5a9b0c1a0b2c3d4e5',
-    });
+    setState(() => _isLoadingImages = true);
+    
+    try {
+      final ytMusic = ytmusic.YtMusicService();
+      
+      // Get all artist names from selected languages
+      final allArtistNames = <String>[];
+      for (final language in widget.selectedLanguages) {
+        allArtistNames.addAll(language.topArtists);
+      }
+      
+      // Fetch images for each artist from YouTube Music
+      for (final artistName in allArtistNames) {
+        try {
+          final searchResults = await ytMusic.searchArtists(artistName);
+          if (searchResults.isNotEmpty) {
+            final artist = searchResults.first;
+            if (artist.thumbnailUrl != null && artist.thumbnailUrl!.isNotEmpty) {
+              _artistImages[artistName] = artist.thumbnailUrl!;
+            }
+          }
+        } catch (e) {
+          print('Failed to fetch image for $artistName: $e');
+        }
+      }
+    } catch (e) {
+      print('Error loading artist images: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingImages = false);
+      }
+    }
   }
 
   List<_ArtistInfo> _getArtistsForLanguages() {
@@ -244,21 +245,54 @@ class _ArtistSelectionPageState extends ConsumerState<ArtistSelectionPage> {
                                         ),
                                       ),
                                       child: ClipOval(
-                                        child: Container(
-                                          color: AppTheme.darkCard,
-                                          child: Center(
-                                            child: Text(
-                                              artist.name.substring(0, 1).toUpperCase(),
-                                              style: TextStyle(
-                                                fontSize: 28,
-                                                fontWeight: FontWeight.bold,
-                                                color: isSelected 
-                                                    ? AppTheme.primaryColor 
-                                                    : Colors.grey,
+                                        child: artist.imageUrl != null && artist.imageUrl!.isNotEmpty
+                                            ? CachedNetworkImage(
+                                                imageUrl: artist.imageUrl!,
+                                                width: 80,
+                                                height: 80,
+                                                fit: BoxFit.cover,
+                                                placeholder: (context, url) => Container(
+                                                  color: AppTheme.darkCard,
+                                                  child: Center(
+                                                    child: Text(
+                                                      artist.name.substring(0, 1).toUpperCase(),
+                                                      style: TextStyle(
+                                                        fontSize: 28,
+                                                        fontWeight: FontWeight.bold,
+                                                        color: Colors.grey,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                                errorWidget: (context, url, error) => Container(
+                                                  color: AppTheme.darkCard,
+                                                  child: Center(
+                                                    child: Text(
+                                                      artist.name.substring(0, 1).toUpperCase(),
+                                                      style: TextStyle(
+                                                        fontSize: 28,
+                                                        fontWeight: FontWeight.bold,
+                                                        color: Colors.grey,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              )
+                                            : Container(
+                                                color: AppTheme.darkCard,
+                                                child: Center(
+                                                  child: Text(
+                                                    artist.name.substring(0, 1).toUpperCase(),
+                                                    style: TextStyle(
+                                                      fontSize: 28,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: isSelected 
+                                                          ? AppTheme.primaryColor 
+                                                          : Colors.grey,
+                                                    ),
+                                                  ),
+                                                ),
                                               ),
-                                            ),
-                                          ),
-                                        ),
                                       ),
                                     ),
                                     if (isSelected)

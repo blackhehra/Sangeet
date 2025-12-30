@@ -12,7 +12,7 @@ class SpotifyBrowseEndpoint {
     return (plugin as dynamic).memberGet('browse');
   }
   
-  /// Get personalized home sections (like Spotify home page)
+  /// Get personalized home sections
   Future<SpotifyBrowseSectionsResponse> sections({int? limit, int? offset}) async {
     try {
       final namedArgs = <String, dynamic>{};

@@ -12,10 +12,11 @@ import 'package:sangeet/models/spotify_models.dart';
 import 'package:sangeet/shared/providers/track_matcher_provider.dart';
 import 'package:sangeet/services/track_matcher_service.dart';
 import 'package:sangeet/services/audio_player_service.dart';
-import 'package:sangeet/features/player/widgets/mini_player.dart';
 import 'package:sangeet/models/track.dart';
 import 'package:sangeet/shared/providers/desktop_navigation_provider.dart';
 import 'package:sangeet/shared/widgets/find_manually_sheet.dart';
+import 'package:sangeet/services/custom_playlist_service.dart';
+import 'package:sangeet/shared/providers/custom_playlist_provider.dart';
 
 /// Special ID for liked songs
 const String likedSongsId = 'liked_songs';
@@ -394,6 +395,118 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
     }
   }
 
+  /// Show dialog to import Spotify playlist to Sangeet
+  Future<void> _showImportPlaylistDialog(List<SpotifyTrack> tracks) async {
+    // Use special name for liked songs
+    final importName = widget.type == PlaylistType.likedSongs 
+        ? 'Spoti-Liked Songs' 
+        : widget.playlistName;
+    
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.darkCard,
+        title: const Text('Add to Sangeet'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Import "$importName" with ${tracks.length} songs to your Sangeet playlists?',
+              style: TextStyle(color: Colors.grey.shade300),
+            ),
+            const Gap(16),
+            Text(
+              'This will match all songs with audio sources. This may take a moment.',
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, 'import'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Import'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == 'import') {
+      await _importPlaylist(tracks);
+    }
+  }
+
+  /// Import Spotify playlist to Sangeet local playlists
+  Future<void> _importPlaylist(List<SpotifyTrack> tracks) async {
+    if (!mounted) return;
+    
+    // Use special name for liked songs
+    final importName = widget.type == PlaylistType.likedSongs 
+        ? 'Spoti-Liked Songs' 
+        : widget.playlistName;
+
+    try {
+      final customPlaylistService = CustomPlaylistService.instance;
+      
+      // Instant import: Save Spotify metadata only (no matching yet)
+      // Matching happens on-demand when user clicks to play
+      // Reverse the list so recently added songs appear at top
+      final importedTracks = tracks.reversed.map((spotifyTrack) => Track(
+        id: spotifyTrack.id, // Spotify ID - will be matched to YouTube on play
+        title: spotifyTrack.name,
+        artist: spotifyTrack.artists.map((a) => a.name).join(', '),
+        album: spotifyTrack.album.name,
+        thumbnailUrl: spotifyTrack.album.images.isNotEmpty 
+            ? spotifyTrack.album.images.first.url 
+            : null,
+        duration: Duration(milliseconds: spotifyTrack.durationMs),
+      )).toList();
+      
+      // Create the playlist instantly with Spotify metadata
+      await customPlaylistService.importSpotifyPlaylist(
+        name: importName,
+        tracks: importedTracks,
+        description: widget.type == PlaylistType.likedSongs 
+            ? 'Imported from Spotify Liked Songs' 
+            : 'Imported from Spotify',
+        imageUrl: widget.imageUrl,
+      );
+      
+      // Refresh the playlists provider so UI updates immediately
+      ref.read(customPlaylistsProvider.notifier).refresh();
+      
+      if (!mounted) return;
+      
+      // Show success immediately
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Imported "$importName" with ${tracks.length} songs',
+          ),
+          backgroundColor: AppTheme.primaryColor,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error importing playlist: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Use the correct provider based on type
@@ -491,6 +604,17 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
                       style: TextStyle(color: Colors.grey.shade400),
                     ),
                     const Spacer(),
+                    // Add to Sangeet button (import playlist or liked songs)
+                    if (widget.type == PlaylistType.playlist || widget.type == PlaylistType.likedSongs)
+                      IconButton(
+                        onPressed: () => _showImportPlaylistDialog(tracks),
+                        icon: const Icon(Iconsax.add_circle),
+                        tooltip: 'Add to Sangeet',
+                        style: IconButton.styleFrom(
+                          backgroundColor: AppTheme.darkCard,
+                        ),
+                      ),
+                    if (widget.type == PlaylistType.playlist || widget.type == PlaylistType.likedSongs) const Gap(8),
                     // Shuffle button
                     IconButton(
                       onPressed: _isPlayingAll ? null : () => _shufflePlay(tracks),
@@ -677,19 +801,6 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
             const SliverGap(140),
           ],
         ),
-        // Mini player at bottom (only show when not embedded in desktop shell)
-        if (!widget.isEmbedded)
-          const Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: SafeArea(
-              child: Padding(
-                padding: EdgeInsets.only(bottom: 8),
-                child: MiniPlayer(),
-              ),
-            ),
-          ),
         ],
       ),
     );

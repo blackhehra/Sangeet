@@ -27,7 +27,7 @@ import 'endpoints/browse_endpoint.dart';
 final GlobalKey<NavigatorState> pluginNavigatorKey = GlobalKey<NavigatorState>();
 
 /// Main Spotify Plugin service
-/// This integrates Spotube's Hetu-based Spotify plugin into our app
+/// This integrates the Hetu-based Spotify plugin into our app
 class SpotifyPluginService {
   static SpotifyPluginService? _instance;
   
@@ -89,7 +89,7 @@ class SpotifyPluginService {
     // Load standard library bindings
     HetuStdLoader.loadBindings(hetu);
     
-    // Load Spotube plugin bindings
+    // Load plugin bindings
     HetuSpotubePluginLoader.loadBindings(
       hetu,
       localStorageImpl: SharedPreferencesLocalStorage(

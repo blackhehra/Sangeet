@@ -9,7 +9,6 @@ import 'package:sangeet/shared/providers/audio_provider.dart';
 import 'package:sangeet/shared/widgets/song_tile.dart';
 import 'package:sangeet/shared/widgets/playing_indicator.dart';
 import 'package:sangeet/models/track.dart';
-import 'package:sangeet/features/player/widgets/mini_player.dart';
 import 'package:sangeet/shared/providers/desktop_navigation_provider.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -312,13 +311,6 @@ class _LikedSongsPageState extends ConsumerState<LikedSongsPage> {
           // Bottom padding for mini player
           const SliverGap(100),
         ],
-      ),
-      // Mini Player (only show on mobile, desktop has its own player bar)
-      bottomNavigationBar: _isDesktop ? null : const SafeArea(
-        child: Padding(
-          padding: EdgeInsets.only(bottom: 8),
-          child: MiniPlayer(),
-        ),
       ),
     );
   }

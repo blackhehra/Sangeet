@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:gap/gap.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:sangeet/core/theme/app_theme.dart';
 import 'package:sangeet/shared/providers/audio_provider.dart';
 import 'package:sangeet/shared/providers/bluetooth_provider.dart';
@@ -27,33 +29,108 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
   bool _isLiked = false;
   Track? _currentTrack;
   late AnimationController _animationController;
-  late Animation<Offset> _offsetAnimation;
-  final ValueNotifier<double> _dragOffset = ValueNotifier<double>(0.0);
+  late Animation<double> _dismissAnimation;
+  double _dragOffset = 0.0;
+  final ScrollController _scrollController = ScrollController();
+  bool _isDismissing = false;
+  
   
   @override
   void initState() {
     super.initState();
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 300),
     );
-    _offsetAnimation = Tween<Offset>(
-      begin: Offset.zero,
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOut,
-    ));
+    _dismissAnimation = Tween<double>(begin: 0, end: 1).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
+    );
+  }
+  
+  // Track last delta for velocity estimation
+  double _lastDelta = 0.0;
+  
+  // Called when pointer is released while in dismiss mode
+  void _onPointerUp() {
+    if (!_isDismissing || _dragOffset == 0) {
+      _isDismissing = false;
+      return;
+    }
+    
+    final screenHeight = MediaQuery.of(context).size.height;
+    final dragProgress = _dragOffset / screenHeight;
+    
+    // ViMusic-style: use last movement direction to decide
+    // Positive delta = finger was moving DOWN -> dismiss
+    // Negative delta = finger was moving UP -> snap back
+    bool shouldDismiss;
+    if (_lastDelta > 2) {
+      // Finger was moving down when released -> dismiss
+      shouldDismiss = true;
+    } else if (_lastDelta < -2) {
+      // Finger was moving up when released -> snap back
+      shouldDismiss = false;
+    } else {
+      // Very slow/no movement -> use position threshold (50%)
+      shouldDismiss = dragProgress > 0.5;
+    }
+    
+    _isDismissing = false;
+    _lastDelta = 0;
+    
+    if (shouldDismiss) {
+      _animationController.duration = Duration(milliseconds: (200 * (1 - dragProgress)).clamp(100, 300).toInt());
+      _animationController.forward(from: dragProgress).then((_) {
+        Navigator.pop(context);
+      });
+    } else {
+      _animationController.duration = const Duration(milliseconds: 250);
+      _animationController.reverse(from: dragProgress).then((_) {
+        setState(() => _dragOffset = 0.0);
+      });
+    }
+  }
+  
+  bool _handleScrollNotification(ScrollNotification notification) {
+    // Only enter dismiss mode on overscroll at top
+    if (notification is OverscrollNotification && notification.overscroll < 0) {
+      setState(() {
+        _dragOffset += notification.overscroll.abs();
+        _isDismissing = true;
+      });
+      return true;
+    }
+    return false;
+  }
+  
+  // Calculate the current offset based on drag or animation
+  double _getCurrentOffset(double screenHeight) {
+    if (_animationController.isAnimating) {
+      return _dismissAnimation.value * screenHeight;
+    }
+    return _dragOffset;
+  }
+  
+  // Calculate scale based on drag progress (Spotify-like shrink effect)
+  double _getScale(double screenHeight) {
+    final progress = _getCurrentOffset(screenHeight) / screenHeight;
+    return 1.0 - (progress * 0.1).clamp(0.0, 0.1); // Max 10% shrink
+  }
+  
+  // Calculate border radius based on drag progress
+  double _getBorderRadius(double screenHeight) {
+    final progress = _getCurrentOffset(screenHeight) / screenHeight;
+    return (progress * 24).clamp(0.0, 24.0); // Max 24px border radius
   }
   
   @override
   void dispose() {
     _animationController.dispose();
-    _dragOffset.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  /// Get high quality YouTube thumbnail URL for full player (like ViMusic)
+  /// Get high quality thumbnail URL for full player
   /// Services now provide maxresdefault directly
   /// Also handles Google thumbnail URLs with dynamic sizing
   String _getHighQualityThumbnail(String url) {
@@ -144,81 +221,48 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
         final playing = isPlaying.valueOrNull ?? false;
         final buffering = isBuffering.valueOrNull ?? false;
 
+        final screenHeight = size.height;
+        
         return Scaffold(
           backgroundColor: Colors.transparent,
-          body: GestureDetector(
-            onVerticalDragStart: (details) {
-              _animationController.stop();
-            },
-            onVerticalDragUpdate: (details) {
-              _dragOffset.value += details.delta.dy;
-              // Only allow dragging down, not up
-              if (_dragOffset.value < 0) _dragOffset.value = 0;
-            },
-            onVerticalDragEnd: (details) {
-              final shouldDismiss = _dragOffset.value > 100 || 
-                  (details.primaryVelocity != null && details.primaryVelocity! > 300);
-              
-              if (shouldDismiss) {
-                // Animate smoothly to bottom before dismissing
-                final screenHeight = MediaQuery.of(context).size.height;
-                _offsetAnimation = Tween<Offset>(
-                  begin: Offset(0, _dragOffset.value),
-                  end: Offset(0, screenHeight),
-                ).animate(CurvedAnimation(
-                  parent: _animationController,
-                  curve: Curves.easeInCubic,
-                ));
-                _animationController.duration = const Duration(milliseconds: 150);
-                _animationController.forward(from: 0).then((_) {
-                  Navigator.pop(context);
-                });
-              } else {
-                // Smooth snap back animation
-                _animationController.duration = const Duration(milliseconds: 200);
-                _offsetAnimation = Tween<Offset>(
-                  begin: Offset(0, _dragOffset.value),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(
-                  parent: _animationController,
-                  curve: Curves.easeOut,
-                ));
-                _animationController.forward(from: 0).then((_) {
-                  _dragOffset.value = 0.0;
-                });
-              }
-            },
-            onVerticalDragCancel: () {
-              // Smooth snap back animation
-              _offsetAnimation = Tween<Offset>(
-                begin: Offset(0, _dragOffset.value),
-                end: Offset.zero,
-              ).animate(CurvedAnimation(
-                parent: _animationController,
-                curve: Curves.easeOut,
-              ));
-              _animationController.forward(from: 0).then((_) {
-                _dragOffset.value = 0.0;
+          body: Listener(
+            // ViMusic-style: Listener captures pointer events when in dismiss mode
+            onPointerMove: _isDismissing ? (event) {
+              _lastDelta = event.delta.dy; // Track direction for dismiss decision
+              setState(() {
+                _dragOffset = (_dragOffset + event.delta.dy).clamp(0.0, double.infinity);
+                if (_dragOffset == 0) {
+                  _isDismissing = false;
+                  _lastDelta = 0;
+                }
               });
-            },
-            child: ValueListenableBuilder<double>(
-              valueListenable: _dragOffset,
-              builder: (context, offset, child) {
-                return AnimatedBuilder(
-                  animation: _animationController,
-                  builder: (context, child) {
-                    final currentOffset = _animationController.isAnimating
-                        ? _offsetAnimation.value
-                        : Offset(0, offset);
-                    return Transform.translate(
-                      offset: currentOffset,
-                      child: child,
-                    );
-                  },
-                  child: child,
-                );
-              },
-              child: Container(
+            } : null,
+            onPointerUp: _isDismissing ? (event) {
+              _onPointerUp();
+            } : null,
+            behavior: HitTestBehavior.translucent,
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _handleScrollNotification,
+              child: AnimatedBuilder(
+                animation: _animationController,
+                builder: (context, child) {
+                  final currentOffset = _getCurrentOffset(screenHeight);
+                  final scale = _getScale(screenHeight);
+                  final borderRadius = _getBorderRadius(screenHeight);
+                  
+                  return Transform.translate(
+                    offset: Offset(0, currentOffset),
+                    child: Transform.scale(
+                      scale: scale,
+                      alignment: Alignment.topCenter,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(borderRadius),
+                        child: child,
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
@@ -232,6 +276,9 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
               ),
               child: SafeArea(
                 child: SingleChildScrollView(
+                  controller: _scrollController,
+                  // Disable scrolling when in dismiss mode to prevent content from moving
+                  physics: _isDismissing ? const NeverScrollableScrollPhysics() : const ClampingScrollPhysics(),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
                       minHeight: size.height - MediaQuery.of(context).padding.top - MediaQuery.of(context).padding.bottom,
@@ -360,7 +407,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
                             memCacheHeight: 1080,
                             maxWidthDiskCache: 1080,
                             maxHeightDiskCache: 1080,
-                            // Fallback to hqdefault if maxresdefault fails (like ViMusic)
+                            // Fallback to hqdefault if maxresdefault fails
                             errorWidget: (context, url, error) => CachedNetworkImage(
                               imageUrl: _getFallbackThumbnail(url),
                               width: size.width * 0.75,
@@ -529,7 +576,14 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
                         
                         // Play/Pause
                         GestureDetector(
-                          onTap: () => audioService.togglePlayPause(),
+                          onTap: () {
+                            // Check if this is a restored track that needs special handling
+                            if (audioService.hasRestoredTrack && !playing) {
+                              audioService.resumeFromRestored();
+                            } else {
+                              audioService.togglePlayPause();
+                            }
+                          },
                           child: Container(
                             width: 64,
                             height: 64,
@@ -624,15 +678,16 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
                   PlayerArtistSection(track: track),
                   
                   const Gap(32),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
         ),
-        ),
-        );
+      ),
+    );
       },
       loading: () => const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -1025,11 +1080,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
   }
 
   void _shareTrack(BuildContext context, Track track) {
-    final shareText = 'Check out "${track.title}" by ${track.artist} on Sangeet!\nhttps://music.youtube.com/watch?v=${track.id}';
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Sharing: ${track.title}')),
-    );
-    // TODO: Use share_plus package for actual sharing
-    // Share.share(shareText);
+    final shareText = 'Check out "${track.title}" by ${track.artist}!\nhttps://music.youtube.com/watch?v=${track.id}';
+    Share.share(shareText, subject: track.title);
   }
 }

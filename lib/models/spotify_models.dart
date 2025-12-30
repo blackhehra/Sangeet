@@ -1,5 +1,4 @@
-/// Spotify metadata models - compatible with Spotube plugin format
-/// These models match the structure returned by the Spotube Spotify plugin
+/// Spotify metadata models for the plugin system
 
 library spotify_models;
 

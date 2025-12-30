@@ -7,8 +7,10 @@ import 'package:sangeet/core/theme/app_theme.dart';
 import 'package:sangeet/models/track.dart';
 import 'package:sangeet/shared/providers/audio_provider.dart';
 import 'package:sangeet/shared/widgets/playing_indicator.dart';
+import 'package:sangeet/features/playlist/widgets/add_to_playlist_dialog.dart';
+import 'package:sangeet/services/audio_player_service.dart';
 
-/// Reusable song tile widget with playing indicator (like Spotify)
+/// Reusable song tile widget with playing indicator
 /// Shows animated equalizer bars when the song is currently playing
 class SongTile extends ConsumerWidget {
   final Track track;
@@ -43,50 +45,109 @@ class SongTile extends ConsumerWidget {
     final isCurrentTrack = currentTrack?.id == track.id;
     final audioService = ref.read(audioPlayerServiceProvider);
 
-    return ListTile(
-      onTap: isCurrentTrack 
-          ? () {
-              // Toggle play/pause for current track
-              if (isPlaying) {
-                audioService.pause();
-              } else {
-                audioService.resume();
+    return GestureDetector(
+      onLongPress: () => _showOptionsBottomSheet(context, ref, audioService),
+      onSecondaryTap: () => _showOptionsBottomSheet(context, ref, audioService),
+      child: ListTile(
+        onTap: isCurrentTrack 
+            ? () {
+                // Toggle play/pause for current track
+                if (isPlaying) {
+                  audioService.pause();
+                } else {
+                  audioService.resume();
+                }
               }
-            }
-          : onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: leading ?? _buildLeading(isCurrentTrack, isPlaying),
-      title: Row(
-        children: [
-          // Show playing indicator for current track
-          if (isCurrentTrack) ...[
-            PlayingIndicator(
-              isPlaying: isPlaying,
-              size: 14,
-              color: AppTheme.primaryColor,
-            ),
-            const Gap(8),
-          ],
-          Expanded(
-            child: Text(
-              track.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontWeight: FontWeight.w500,
-                color: isCurrentTrack ? AppTheme.primaryColor : null,
+            : onTap,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        leading: leading ?? _buildLeading(isCurrentTrack, isPlaying),
+        title: Row(
+          children: [
+            // Show playing indicator for current track
+            if (isCurrentTrack) ...[
+              PlayingIndicator(
+                isPlaying: isPlaying,
+                size: 14,
+                color: AppTheme.primaryColor,
+              ),
+              const Gap(8),
+            ],
+            Expanded(
+              child: Text(
+                track.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: FontWeight.w500,
+                  color: isCurrentTrack ? AppTheme.primaryColor : null,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
+        subtitle: Text(
+          track.artist,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+        ),
+        trailing: trailing ?? _buildTrailing(ref, isCurrentTrack, isPlaying),
       ),
-      subtitle: Text(
-        track.artist,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+    );
+  }
+
+  void _showOptionsBottomSheet(BuildContext context, WidgetRef ref, AudioPlayerService audioService) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.darkCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      trailing: trailing ?? _buildTrailing(ref, isCurrentTrack, isPlaying),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Gap(8),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade600,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const Gap(16),
+            ListTile(
+              leading: const Icon(Iconsax.music_playlist),
+              title: const Text('Add to Playlist'),
+              onTap: () {
+                Navigator.pop(context);
+                showDialog(
+                  context: context,
+                  builder: (context) => AddToPlaylistDialog(track: track),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Iconsax.next),
+              title: const Text('Play Next'),
+              onTap: () {
+                Navigator.pop(context);
+                audioService.playNext(track);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Iconsax.music_square_add),
+              title: const Text('Add to Queue'),
+              onTap: () {
+                Navigator.pop(context);
+                audioService.addToQueue(track);
+              },
+            ),
+            const Gap(16),
+          ],
+        ),
+      ),
     );
   }
 
@@ -161,11 +222,58 @@ class SongTile extends ConsumerWidget {
       );
     }
     
-    return IconButton(
-      onPressed: () {
-        // TODO: Show track options menu
-      },
+    return PopupMenuButton<String>(
       icon: const Icon(Iconsax.more, size: 20),
+      color: AppTheme.darkCard,
+      onSelected: (value) {
+        if (value == 'add_to_playlist') {
+          _showAddToPlaylistDialog(ref);
+        } else if (value == 'play_next') {
+          audioService.playNext(track);
+        } else if (value == 'add_to_queue') {
+          audioService.addToQueue(track);
+        }
+      },
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: 'add_to_playlist',
+          child: Row(
+            children: [
+              Icon(Iconsax.music_playlist, size: 20),
+              Gap(12),
+              Text('Add to Playlist'),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'play_next',
+          child: Row(
+            children: [
+              Icon(Iconsax.next, size: 20),
+              Gap(12),
+              Text('Play Next'),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'add_to_queue',
+          child: Row(
+            children: [
+              Icon(Iconsax.music_square_add, size: 20),
+              Gap(12),
+              Text('Add to Queue'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showAddToPlaylistDialog(WidgetRef ref) {
+    final context = ref.context;
+    showDialog(
+      context: context,
+      builder: (context) => AddToPlaylistDialog(track: track),
     );
   }
 }

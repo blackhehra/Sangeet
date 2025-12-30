@@ -589,7 +589,7 @@ class YtMusicService {
         return null;
       }
 
-      // Use actual thumbnail URL from API (like ViMusic)
+      // Use actual thumbnail URL from API
       // Apply dynamic sizing for Google CDN thumbnails
       String? thumbnailUrl;
       if (images.isNotEmpty) {
@@ -741,7 +741,7 @@ class YtMusicService {
     return tracks;
   }
 
-  /// Get high quality thumbnail URL with dynamic sizing (like ViMusic)
+  /// Get high quality thumbnail URL with dynamic sizing
   String _getHighQualityThumbnail(String url, int size) {
     // For lh3.googleusercontent.com thumbnails - add size suffix
     if (url.startsWith('https://lh3.googleusercontent.com')) {

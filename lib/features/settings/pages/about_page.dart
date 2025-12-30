@@ -251,7 +251,7 @@ class _AboutPageState extends State<AboutPage> {
                       ),
                       const Gap(8),
                       Text(
-                        'Big thanks to Spotube Plugin ↗',
+                        'Big thanks to sonic-liberation ↗',
                         style: TextStyle(
                           color: AppTheme.primaryColor,
                           fontSize: 12,

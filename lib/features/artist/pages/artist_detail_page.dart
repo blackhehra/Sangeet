@@ -12,11 +12,10 @@ import 'package:sangeet/models/related_page.dart';
 import 'package:sangeet/services/innertube/innertube_service.dart';
 import 'package:sangeet/services/ytmusic/yt_music_service.dart';
 import 'package:sangeet/services/followed_artists_service.dart';
-import 'package:sangeet/features/player/widgets/mini_player.dart';
 import 'package:sangeet/features/album/pages/album_detail_page.dart';
 import 'package:sangeet/shared/providers/desktop_navigation_provider.dart';
 
-/// Sort options for artist songs (like ViMusic)
+/// Sort options for artist songs
 enum ArtistSongSort {
   playTime('Play time'),
   name('Name'),
@@ -26,7 +25,7 @@ enum ArtistSongSort {
   const ArtistSongSort(this.displayName);
 }
 
-/// Provider for artist page from YouTube Music (like ViMusic artistPage)
+/// Provider for artist page
 /// Uses browse API for albums/singles, search API for songs (to get duration)
 final artistPageProvider = FutureProvider.family<ArtistPage?, String>((ref, browseId) async {
   final innertube = InnertubeService();
@@ -40,7 +39,7 @@ final artistSongsSearchProvider = FutureProvider.family<List<Track>, String>((re
   return await ytMusic.searchSongs('$artistName songs', limit: 15);
 });
 
-/// Artist detail page - shows all songs by an artist with sort options (like ViMusic)
+/// Artist detail page - shows all songs by an artist with sort options
 class ArtistDetailPage extends ConsumerStatefulWidget {
   final String artistId;
   final String artistName;
@@ -497,18 +496,6 @@ class _ArtistDetailPageState extends ConsumerState<ArtistDetailPage> {
             ],
           ),
           // Mini player at bottom (only show when not embedded in desktop shell)
-          if (!widget.isEmbedded)
-            const Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: SafeArea(
-                child: Padding(
-                  padding: EdgeInsets.only(bottom: 8),
-                  child: MiniPlayer(),
-                ),
-              ),
-            ),
         ],
       ),
     );

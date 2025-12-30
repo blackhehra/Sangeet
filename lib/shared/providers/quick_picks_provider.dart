@@ -7,7 +7,7 @@ import 'package:sangeet/services/innertube/innertube_service.dart';
 import 'package:sangeet/services/ytmusic/yt_music_service.dart';
 import 'package:sangeet/services/followed_artists_service.dart';
 
-/// Quick picks source - like ViMusic's DataPreferences.QuickPicksSource
+/// Quick picks source for personalized recommendations
 enum QuickPicksSource {
   trending,      // Based on most played songs
   lastInteraction, // Based on most recently played song
@@ -44,7 +44,7 @@ class QuickPicksState {
   );
 }
 
-/// Quick picks notifier - like ViMusic's HomeQuickPicks
+/// Quick picks notifier for home screen recommendations
 class QuickPicksNotifier extends StateNotifier<QuickPicksState> {
   final PlayHistoryService _historyService;
   final InnertubeService _innertubeService;

@@ -17,6 +17,8 @@ import 'package:sangeet/services/bluetooth_audio_service.dart';
 import 'package:sangeet/services/audio_player_service.dart';
 import 'package:sangeet/services/custom_playlist_service.dart';
 import 'package:sangeet/services/track_matcher_service.dart';
+import 'package:sangeet/services/playback_state_service.dart';
+import 'package:sangeet/services/sharing/deep_link_handler_service.dart';
 
 /// Check if running on desktop platform
 bool get kIsDesktop {
@@ -70,7 +72,7 @@ void main(List<String> args) async {
       print('StreamingServer: Pre-start failed: $e');
     });
     
-    // Initialize play history service (for ViMusic-style recommendations)
+    // Initialize play history service (for personalized recommendations)
     PlayHistoryService.instance.init().then((_) {
       print('PlayHistoryService: Initialized');
     }).catchError((e) {
@@ -105,6 +107,18 @@ void main(List<String> args) async {
       print('TrackMatcherService: Cache init failed: $e');
     });
     
+    // Initialize playback state service and restore last played track
+    PlaybackStateService.instance.init().then((_) async {
+      print('PlaybackStateService: Initialized');
+      // Restore last played track (shows in mini player)
+      final restored = await AudioPlayerService().restoreLastPlayedTrack();
+      if (restored) {
+        print('PlaybackStateService: Last played track restored');
+      }
+    }).catchError((e) {
+      print('PlaybackStateService: Init failed: $e');
+    });
+    
     // Request notification permission for Android 13+
     try {
       final status = await Permission.notification.request();
@@ -113,7 +127,7 @@ void main(List<String> args) async {
       print('Notification permission request failed: $e');
     }
     
-    // Initialize Spotube's Spotify Plugin
+    // Initialize Spotify Plugin
     try {
       await SpotifyPluginService.initialize(navigatorKey: rootNavigatorKey);
       print('SpotifyPlugin: Initialized successfully');
@@ -121,6 +135,13 @@ void main(List<String> args) async {
       print('SpotifyPlugin: Failed to initialize: $e');
       print(stack);
     }
+    
+    // Initialize Deep Link Handler for sharing
+    DeepLinkHandlerService.instance.init(navigatorKey: rootNavigatorKey).then((_) {
+      print('DeepLinkHandlerService: Initialized');
+    }).catchError((e) {
+      print('DeepLinkHandlerService: Init failed: $e');
+    });
     
     // Set system UI overlay style
     SystemChrome.setSystemUIOverlayStyle(

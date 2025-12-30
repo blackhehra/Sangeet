@@ -2,7 +2,6 @@ import 'package:hetu_spotube_plugin/hetu_spotube_plugin.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// SharedPreferences-based implementation of Localstorage for the Hetu plugin
-/// This is the same implementation Spotube uses
 class SharedPreferencesLocalStorage implements Localstorage {
   final SharedPreferences _prefs;
   final String pluginSlug;

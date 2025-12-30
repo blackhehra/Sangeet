@@ -203,14 +203,14 @@ class YouTubeService {
     );
   }
 
-  /// Get high quality thumbnail URL for a video (like ViMusic)
+  /// Get high quality thumbnail URL for a video
   /// Uses dynamic sizing for Google/YouTube thumbnails
   String _getMaxResThumbnail(String videoId) {
     // Use maxresdefault for best quality
     return 'https://i.ytimg.com/vi/$videoId/maxresdefault.jpg';
   }
 
-  /// Get thumbnail with dynamic sizing (like ViMusic thumbnail function)
+  /// Get thumbnail with dynamic sizing
   static String? getThumbnailWithSize(String? url, int size) {
     if (url == null || url.isEmpty) return null;
     

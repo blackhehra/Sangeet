@@ -1,5 +1,4 @@
 /// Play event model - tracks when and how long a song was played
-/// Like ViMusic's Event table
 class PlayEvent {
   final String id;
   final String songId;
@@ -29,7 +28,6 @@ class PlayEvent {
 }
 
 /// Song statistics - aggregated play data
-/// Like ViMusic's Song.totalPlayTimeMs
 class SongStats {
   final String songId;
   final String title;

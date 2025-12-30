@@ -164,7 +164,7 @@ class DesktopHomePage extends ConsumerWidget {
                     crossAxisCount: crossAxisCount,
                     mainAxisSpacing: 8,
                     crossAxisSpacing: 8,
-                    childAspectRatio: 4.0, // Smaller tiles like Spotify
+                    childAspectRatio: 4.0, // Compact tiles
                     children: [
                       // Liked Songs (Sangeet local liked songs)
                       _DesktopQuickTile(
@@ -646,7 +646,7 @@ class DesktopHomePage extends ConsumerWidget {
   }
 }
 
-/// Small quick tile like Spotify's home page
+/// Small quick tile for home page
 class _DesktopQuickTile extends StatelessWidget {
   final String title;
   final String? imageUrl;

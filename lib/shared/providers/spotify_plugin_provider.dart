@@ -4,7 +4,7 @@ import 'package:sangeet/models/spotify_models.dart';
 import 'package:sangeet/services/spotify_plugin/endpoints/browse_endpoint.dart';
 
 /// Provider for the Spotify Plugin Service
-/// This is the main entry point for all Spotify functionality using Spotube's plugin
+/// This is the main entry point for all Spotify functionality
 final spotifyPluginProvider = Provider<SpotifyPluginService?>((ref) {
   return SpotifyPluginService.instance;
 });
@@ -23,7 +23,7 @@ final isSpotifyPluginAuthenticatedProvider = Provider<bool>((ref) {
   final plugin = ref.watch(spotifyPluginProvider);
   if (plugin == null) return false;
   
-  // Watch the auth state stream for reactive updates (like Spotube does)
+  // Watch the auth state stream for reactive updates
   // This ensures providers refresh when auth state changes
   final authState = ref.watch(spotifyPluginAuthStateProvider);
   
@@ -389,7 +389,7 @@ final spotifyPluginTopArtistsProvider = FutureProvider<List<SpotifyArtist>>((ref
   }
 });
 
-/// Browse sections (personalized home content like Spotube)
+/// Browse sections (personalized home content)
 final spotifyPluginBrowseSectionsProvider = FutureProvider<SpotifyBrowseSectionsResponse>((ref) async {
   final plugin = ref.watch(spotifyPluginProvider);
   final isAuth = ref.watch(isSpotifyPluginAuthenticatedProvider);

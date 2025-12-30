@@ -33,8 +33,7 @@ final _fullAudioRegex = RegExp(
   caseSensitive: false,
 );
 
-/// Service to match Spotify tracks with YouTube audio sources
-/// Uses Spotube's exact matching algorithm
+/// Service to match Spotify tracks with audio sources
 class TrackMatcherService {
   static final TrackMatcherService _instance = TrackMatcherService._internal();
   factory TrackMatcherService() => _instance;
@@ -91,6 +90,11 @@ class TrackMatcherService {
     
     _cacheInitialized = true;
     print('TrackMatcherService: Loaded $loadedCount cached track matches');
+  }
+  
+  /// Save a track match to persistent cache (public method for external use)
+  Future<void> saveMatchToCache(String spotifyId, Track track) async {
+    return _saveToCache(spotifyId, track);
   }
   
   /// Save a track match to persistent cache
@@ -307,8 +311,7 @@ class TrackMatcherService {
   
   // ============ END BACKGROUND PRE-MATCHING SYSTEM ============
 
-  /// Convert a plugin Spotify track to a playable Track (with YouTube source)
-  /// Uses Spotube's exact matching algorithm
+  /// Convert a plugin Spotify track to a playable Track
   Future<Track> matchSpotifyPluginTrack(plugin.SpotifyTrack spotifyTrack, {MusicSource? forceSource}) async {
     // Return cached result if available (essential for background pre-matching)
     if (forceSource == null && _cache.containsKey(spotifyTrack.id)) {
@@ -398,7 +401,7 @@ class TrackMatcherService {
       throw Exception('No YouTube match found for "${spotifyTrack.name}"');
     }
 
-    // Rank results using Spotube's algorithm
+    // Rank results by relevance
     final rankedResults = _rankResults(results, spotifyTrack);
     final bestMatch = rankedResults.first;
     
@@ -450,7 +453,7 @@ class TrackMatcherService {
     return tracks;
   }
 
-  /// Spotube's getTitle function - cleans up title for better search
+  /// Clean up title for better search
   /// Removes artist names from title if they appear in parentheses
   /// and cleans up common formatting issues
   String _getTitle(String title, {List<String> artists = const []}) {
@@ -648,7 +651,7 @@ class TrackMatcherService {
     return artist.replaceAll(_topicChannelRegex, '').trim();
   }
 
-  /// Spotube's rankResults function - ranks search results by relevance
+  /// Rank search results by relevance
   /// Enhanced with better artist matching to handle same-name artists
   List<Track> _rankResults(List<Track> results, plugin.SpotifyTrack track) {
     final artistNames = track.artists.map((a) => a.name.toLowerCase()).toList();

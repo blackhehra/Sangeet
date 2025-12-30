@@ -3,7 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sangeet/models/play_event.dart';
 import 'package:sangeet/models/track.dart';
 
-/// Play history tracking service - like ViMusic's Event tracking
+/// Play history tracking service
 /// Tracks play events and calculates song statistics for recommendations
 class PlayHistoryService {
   static PlayHistoryService? _instance;
@@ -93,7 +93,7 @@ class PlayHistoryService {
     await _saveStats();
   }
 
-  /// Get trending songs - most played songs (like ViMusic's Database.trending())
+  /// Get trending songs - most played songs
   List<SongStats> getTrendingSongs({int limit = 10}) {
     final sortedStats = _stats.values.toList()
       ..sort((a, b) => b.totalPlayTimeMs.compareTo(a.totalPlayTimeMs));
@@ -126,7 +126,7 @@ class PlayHistoryService {
         .toList();
   }
 
-  /// Get most recently played song (like ViMusic's LastInteraction mode)
+  /// Get most recently played song
   SongStats? getMostRecentSong() {
     if (_stats.isEmpty) return null;
     
@@ -166,7 +166,7 @@ class PlayHistoryService {
     print('PlayHistoryService: History cleared');
   }
 
-  /// Cache quick picks for faster loading (like ViMusic's cachedQuickPicks)
+  /// Cache quick picks for faster loading
   Future<void> cacheQuickPicks(Map<String, dynamic> quickPicks) async {
     await _prefs?.setString(_cachedQuickPicksKey, jsonEncode(quickPicks));
   }

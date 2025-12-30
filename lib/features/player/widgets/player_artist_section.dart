@@ -10,7 +10,6 @@ import 'package:sangeet/models/search_models.dart';
 import 'package:sangeet/services/ytmusic/yt_music_service.dart';
 import 'package:sangeet/services/innertube/innertube_service.dart';
 import 'package:sangeet/services/followed_artists_service.dart';
-import 'package:sangeet/services/wikipedia_service.dart';
 import 'package:sangeet/features/artist/pages/artist_detail_page.dart';
 
 /// Provider for fetching artist info by name
@@ -46,19 +45,15 @@ class PlayerArtistSection extends ConsumerStatefulWidget {
 
 class _PlayerArtistSectionState extends ConsumerState<PlayerArtistSection> {
   final _followedArtistsService = FollowedArtistsService.instance;
-  final _wikipediaService = WikipediaService.instance;
   bool _isDescriptionExpanded = false;
   List<SearchArtist> _allArtists = [];
   bool _artistsLoaded = false;
-  String? _wikiDescription;
-  bool _wikiLoaded = false;
 
   @override
   void initState() {
     super.initState();
     _initFollowStatus();
     _loadAllArtists();
-    _loadWikiDescription();
   }
 
   Future<void> _initFollowStatus() async {
@@ -90,28 +85,6 @@ class _PlayerArtistSectionState extends ConsumerState<PlayerArtistSection> {
         _allArtists = results;
         _artistsLoaded = true;
       });
-    }
-  }
-
-  Future<void> _loadWikiDescription() async {
-    // Get primary artist name
-    final artistNames = widget.track.artist.split(RegExp(r',\s*|&\s*|\s+feat\.?\s+|\s+ft\.?\s+'));
-    final primaryArtistName = artistNames.isNotEmpty ? artistNames.first.trim() : widget.track.artist;
-    
-    try {
-      final description = await _wikipediaService.getArtistDescription(primaryArtistName);
-      if (mounted) {
-        setState(() {
-          _wikiDescription = description;
-          _wikiLoaded = true;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _wikiLoaded = true;
-        });
-      }
     }
   }
 
@@ -456,8 +429,8 @@ class _PlayerArtistSectionState extends ConsumerState<PlayerArtistSection> {
   Widget _buildAboutSection(SearchArtist artist, AsyncValue<ArtistPage?> artistPageAsync) {
     return artistPageAsync.when(
       data: (artistPage) {
-        // Use Wikipedia description if available, otherwise fall back to YouTube Music description
-        final description = _wikiDescription ?? artistPage?.description;
+        // Use YouTube Music description from artist page
+        final description = artistPage?.description;
         final subscribersText = artistPage?.subscribersCountText ?? artist.subscribersText;
         
         return Container(

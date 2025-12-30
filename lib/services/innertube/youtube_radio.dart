@@ -1,7 +1,7 @@
 import 'package:sangeet/models/track.dart';
 import 'package:sangeet/services/innertube/innertube_service.dart';
 
-/// YouTube Radio - Auto-queue related songs (like ViMusic YouTubeRadio)
+/// Auto-queue related songs based on the current playing track
 /// This fetches related songs based on the current playing track
 class YouTubeRadio {
   final InnertubeService _innertube = InnertubeService();

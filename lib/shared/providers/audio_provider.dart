@@ -67,3 +67,9 @@ final repeatModeProvider = Provider<RepeatMode>((ref) {
   final service = ref.watch(audioPlayerServiceProvider);
   return service.repeatMode;
 });
+
+// Has Restored Track Provider - checks if there's a restored track ready to play
+final hasRestoredTrackProvider = Provider<bool>((ref) {
+  final service = ref.watch(audioPlayerServiceProvider);
+  return service.hasRestoredTrack;
+});

@@ -175,7 +175,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
           Expanded(
             child: Row(
               children: [
-                // Left Sidebar (narrow icon bar like Spotify)
+                // Left Sidebar (narrow icon bar)
                 DesktopSidebar(
                   selectedNavIndex: _selectedNavIndex,
                   onNavSelected: _onNavSelected,

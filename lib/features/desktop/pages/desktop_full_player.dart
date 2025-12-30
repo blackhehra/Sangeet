@@ -19,7 +19,6 @@ bool get isDesktop {
 }
 
 /// Desktop Full Player - Shows cover image with bottom player bar
-/// Like Spotify's full player view (photo 4)
 class DesktopFullPlayer extends ConsumerStatefulWidget {
   const DesktopFullPlayer({super.key});
 
@@ -197,7 +196,7 @@ class _DesktopFullPlayerState extends ConsumerState<DesktopFullPlayer> {
   }
 
   Widget _buildCoverView(Track track, Size size) {
-    // Calculate cover size - smaller like Spotify (photo 4)
+    // Calculate cover size
     final coverSize = size.height * 0.45; // About 45% of screen height
     final maxCoverSize = 400.0; // Max size cap
     final actualCoverSize = coverSize.clamp(200.0, maxCoverSize);

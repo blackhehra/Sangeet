@@ -1,7 +1,6 @@
 /// Spotify Plugin exports
 /// 
-/// This module provides integration with Spotube's Spotify plugin system.
-/// It allows using the same authentication and API methods that Spotube uses.
+/// This module provides integration with the Spotify plugin system.
 
 export 'spotify_plugin.dart';
 export 'local_storage_impl.dart';

@@ -9,6 +9,10 @@ import 'package:sangeet/features/playlist/pages/custom_playlist_detail_page.dart
 import 'package:sangeet/features/playlist/widgets/create_playlist_dialog.dart';
 import 'package:sangeet/models/track.dart';
 import 'package:sangeet/shared/providers/desktop_navigation_provider.dart';
+import 'package:sangeet/features/sharing/widgets/qr_scanner_sheet.dart';
+import 'package:sangeet/features/sharing/pages/import_handler_page.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:sangeet/services/sharing/share_service.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 
@@ -35,6 +39,20 @@ class CustomPlaylistsPage extends ConsumerWidget {
         title: const Text('My Playlists'),
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          // Import from QR code
+          IconButton(
+            onPressed: () => _scanQrCode(context),
+            icon: const Icon(Iconsax.scan),
+            tooltip: 'Scan QR Code',
+          ),
+          // Import from file
+          IconButton(
+            onPressed: () => _importFromFile(context),
+            icon: const Icon(Iconsax.document_download),
+            tooltip: 'Import .sangeet file',
+          ),
+        ],
       ),
       body: playlists.isEmpty
           ? Center(
@@ -192,6 +210,56 @@ class CustomPlaylistsPage extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  void _scanQrCode(BuildContext context) async {
+    final shareData = await QrScannerSheet.show(context);
+    if (shareData != null && context.mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ImportHandlerPage(shareData: shareData),
+        ),
+      );
+    }
+  }
+
+  void _importFromFile(BuildContext context) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        allowMultiple: false,
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        if (file.path != null && file.path!.endsWith('.sangeet')) {
+          final shareData = await ShareService.instance.importFromFile(file.path!);
+          if (shareData != null && context.mounted) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ImportHandlerPage(shareData: shareData),
+              ),
+            );
+          } else if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Failed to read .sangeet file')),
+            );
+          }
+        } else if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please select a .sangeet file')),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
   }
 }
 

@@ -10,16 +10,17 @@ import 'package:sangeet/shared/widgets/song_tile.dart';
 import 'package:sangeet/models/track.dart';
 import 'package:sangeet/models/related_page.dart';
 import 'package:sangeet/services/innertube/innertube_service.dart';
-import 'package:sangeet/features/player/widgets/mini_player.dart';
 import 'package:sangeet/shared/providers/desktop_navigation_provider.dart';
+import 'package:sangeet/services/sharing/share_service.dart';
+import 'package:sangeet/features/sharing/widgets/share_bottom_sheet.dart';
 
-/// Provider for album page from YouTube Music (like ViMusic albumPage)
+/// Provider for album page
 final albumPageProvider = FutureProvider.family<AlbumPage?, String>((ref, browseId) async {
   final innertube = InnertubeService();
   return await innertube.getAlbumPage(browseId);
 });
 
-/// Album detail page - shows all songs in an album (like ViMusic)
+/// Album detail page - shows all songs in an album
 class AlbumDetailPage extends ConsumerStatefulWidget {
   final String albumId;
   final String albumName;
@@ -190,6 +191,22 @@ class _AlbumDetailPageState extends ConsumerState<AlbumDetailPage> {
                                   style: TextStyle(color: Colors.grey.shade400),
                                 ),
                                 const Spacer(),
+                                // Share button
+                                IconButton(
+                                  onPressed: tracks.isEmpty ? null : () {
+                                    final shareData = ShareService.instance.createAlbumShare(
+                                      name: albumPage?.title ?? widget.albumName,
+                                      artist: artistName,
+                                      tracks: tracks,
+                                    );
+                                    ShareBottomSheet.show(context, shareData);
+                                  },
+                                  icon: const Icon(Iconsax.share),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: AppTheme.darkCard,
+                                  ),
+                                ),
+                                const Gap(8),
                                 // Shuffle button
                                 IconButton(
                                   onPressed: tracks.isEmpty || _isPlayingAll ? null : () => _shufflePlay(tracks),
@@ -279,18 +296,6 @@ class _AlbumDetailPageState extends ConsumerState<AlbumDetailPage> {
             ],
           ),
           // Mini player at bottom (only show when not embedded in desktop shell)
-          if (!widget.isEmbedded)
-            const Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: SafeArea(
-                child: Padding(
-                  padding: EdgeInsets.only(bottom: 8),
-                  child: MiniPlayer(),
-                ),
-              ),
-            ),
         ],
       ),
     );

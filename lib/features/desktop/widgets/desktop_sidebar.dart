@@ -40,7 +40,7 @@ class DesktopSidebar extends ConsumerWidget {
       child: Column(
         children: [
           const Gap(8),
-          // Navigation Icons (like Spotify's left icon bar)
+          // Navigation Icons
           _NavIconButton(
             icon: Iconsax.home_2,
             selectedIcon: Iconsax.home_15,

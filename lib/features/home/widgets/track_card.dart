@@ -77,7 +77,7 @@ class TrackCard extends ConsumerWidget {
                                 color: AppTheme.darkCard,
                               ),
                             ),
-                            // Fallback to hqdefault if maxresdefault fails (like ViMusic)
+                            // Fallback to hqdefault if maxresdefault fails
                             errorWidget: (context, url, error) => CachedNetworkImage(
                               imageUrl: url.contains('maxresdefault.jpg') 
                                   ? url.replaceAll('maxresdefault.jpg', 'hqdefault.jpg')

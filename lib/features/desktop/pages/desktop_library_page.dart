@@ -24,8 +24,7 @@ bool get isDesktop {
   return Platform.isWindows || Platform.isMacOS || Platform.isLinux;
 }
 
-/// Desktop Library Page - Shows Spotify home data for logged in user
-/// Similar to Spotube's approach
+/// Desktop Library Page - Shows home data for logged in user
 class DesktopLibraryPage extends ConsumerStatefulWidget {
   const DesktopLibraryPage({super.key});
 

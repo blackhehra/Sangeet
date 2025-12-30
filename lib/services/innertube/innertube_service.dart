@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:sangeet/models/track.dart';
 import 'package:sangeet/models/related_page.dart';
 
-/// Innertube API service - Direct YouTube Music API (like ViMusic)
+/// Innertube API service - Direct Music API
 /// This provides better audio quality and faster loading than youtube_explode
 class InnertubeService {
   static final InnertubeService _instance = InnertubeService._internal();
@@ -14,7 +14,7 @@ class InnertubeService {
   static const String _playerUrl = 'https://youtubei.googleapis.com/youtubei/v1/player';
   static const String _apiKey = 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30';
 
-  // Client contexts (like ViMusic)
+  // Client contexts for API requests
   static const Map<String, dynamic> _webContext = {
     'client': {
       'clientName': 'WEB_REMIX',
@@ -58,7 +58,7 @@ class InnertubeService {
   };
 
   /// Get player response with highest quality audio stream
-  /// Tries multiple clients like ViMusic does
+  /// Tries multiple clients for reliability
   Future<PlayerResponse?> getPlayer(String videoId) async {
     final contexts = [_webContext, _androidContext, _iosContext];
     
@@ -101,7 +101,7 @@ class InnertubeService {
     return PlayerResponse.fromJson(json);
   }
 
-  /// Search for songs (like ViMusic searchPage)
+  /// Search for songs
   Future<List<Track>> search(String query, {int limit = 20}) async {
     try {
       final body = {
@@ -129,7 +129,7 @@ class InnertubeService {
     }
   }
 
-  /// Get next/related songs (like ViMusic nextPage for radio)
+  /// Get next/related songs for radio
   Future<List<Track>> getNextSongs(String videoId, {String? playlistId}) async {
     try {
       final body = {
@@ -162,7 +162,7 @@ class InnertubeService {
     }
   }
 
-  /// Get album page by browse ID (like ViMusic albumPage/playlistPage)
+  /// Get album page by browse ID
   Future<AlbumPage?> getAlbumPage(String browseId) async {
     try {
       final body = {
@@ -195,7 +195,7 @@ class InnertubeService {
     return albumPage?.songs ?? [];
   }
 
-  /// Get artist page by browse ID (like ViMusic artistPage)
+  /// Get artist page by browse ID
   Future<ArtistPage?> getArtistPage(String browseId) async {
     try {
       final body = {
@@ -255,7 +255,7 @@ class InnertubeService {
     }
   }
 
-  /// Get related songs for a video (like ViMusic relatedPage)
+  /// Get related songs for a video
   Future<List<Track>> getRelatedSongs(String videoId) async {
     try {
       final relatedPage = await getRelatedPage(videoId);
@@ -266,7 +266,7 @@ class InnertubeService {
     }
   }
 
-  /// Get full related page with songs, albums, artists, playlists (like ViMusic relatedPage)
+  /// Get full related page with songs, albums, artists, playlists
   Future<RelatedPage?> getRelatedPage(String videoId) async {
     try {
       // First get the browse ID for related tab
@@ -467,7 +467,7 @@ class InnertubeService {
     return tracks;
   }
 
-  /// Parse full related page with all sections (like ViMusic RelatedPage)
+  /// Parse full related page with all sections
   RelatedPage? _parseFullRelatedPage(Map<String, dynamic> json) {
     try {
       final contents = json['contents']?['sectionListRenderer']?['contents'];
@@ -491,7 +491,7 @@ class InnertubeService {
         final items = carousel['contents'] as List?;
         if (items == null) continue;
 
-        // Parse based on section title (like ViMusic findSectionByTitle)
+        // Parse based on section title
         // More flexible matching for different languages/variations
         if (headerTitle.contains('You might also like') || 
             headerTitle.contains('similar songs') ||
@@ -738,7 +738,7 @@ class InnertubeService {
         }
       }
 
-      // Get thumbnail - use dynamic sizing like ViMusic
+      // Get thumbnail with dynamic sizing
       final thumbnails = renderer['thumbnail']?['musicThumbnailRenderer']
           ?['thumbnail']?['thumbnails'] as List?;
       String? thumbnailUrl;
@@ -911,7 +911,7 @@ class InnertubeService {
     }
   }
 
-  /// Get high quality thumbnail URL with dynamic sizing (like ViMusic)
+  /// Get high quality thumbnail URL with dynamic sizing
   /// Appends -w{size}-h{size} for Google/YouTube thumbnails
   String? _getHighQualityThumbnail(String? url, int size) {
     if (url == null || url.isEmpty) return null;
@@ -952,7 +952,7 @@ class InnertubeService {
     return Duration.zero;
   }
 
-  /// Parse album page from browse response (like ViMusic playlistPage)
+  /// Parse album page from browse response
   AlbumPage? _parseAlbumPage(Map<String, dynamic> json) {
     try {
       // Try singleColumnBrowseResultsRenderer first (standard album layout)
@@ -1178,7 +1178,7 @@ class InnertubeService {
     }
   }
 
-  /// Parse artist page from browse response (like ViMusic artistPage)
+  /// Parse artist page from browse response
   ArtistPage? _parseArtistPage(Map<String, dynamic> json) {
     try {
       final header = json['header']?['musicImmersiveHeaderRenderer'] ?? 
@@ -1323,7 +1323,7 @@ class InnertubeService {
   }
 }
 
-/// Player response model (like ViMusic PlayerResponse)
+/// Player response model
 class PlayerResponse {
   final PlayabilityStatus playabilityStatus;
   final StreamingData? streamingData;
@@ -1339,7 +1339,7 @@ class PlayerResponse {
 
   bool get isPlayable => playabilityStatus.status == 'OK' && streamingData != null;
 
-  /// Get highest quality audio format (like ViMusic highestQualityFormat)
+  /// Get highest quality audio format
   /// Prefers itag 251 (Opus ~160kbps) or 140 (AAC 128kbps) for best audio quality
   AudioFormat? get highestQualityAudioFormat {
     if (streamingData == null) return null;
@@ -1350,7 +1350,7 @@ class PlayerResponse {
     
     if (audioFormats.isEmpty) return null;
     
-    // Prefer itag 251 (Opus) or 140 (AAC) like ViMusic does
+    // Prefer itag 251 (Opus) or 140 (AAC)
     // itag 251: Opus ~160kbps VBR - best quality for music
     // itag 140: AAC 128kbps - good fallback
     final preferred = audioFormats.where((f) => f.itag == 251 || f.itag == 140).toList();

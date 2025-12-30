@@ -45,5 +45,57 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	
+	<!-- Deep link URL scheme -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>sangeet</string>
+			</array>
+			<key>CFBundleURLName</key>
+			<string>com.sangeet.share</string>
+		</dict>
+	</array>
+	
+	<!-- File type association for .sangeet files -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Sangeet Playlist</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.sangeet.playlist</string>
+			</array>
+		</dict>
+	</array>
+	
+	<!-- UTI declaration for .sangeet files -->
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.sangeet.playlist</string>
+			<key>UTTypeDescription</key>
+			<string>Sangeet Playlist File</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>sangeet</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>

@@ -8,9 +8,10 @@ import 'package:sangeet/models/track.dart';
 import 'package:sangeet/shared/providers/custom_playlist_provider.dart';
 import 'package:sangeet/shared/providers/audio_provider.dart';
 import 'package:sangeet/shared/widgets/playing_indicator.dart';
-import 'package:sangeet/features/player/widgets/mini_player.dart';
 import 'package:sangeet/shared/providers/desktop_navigation_provider.dart';
 import 'package:sangeet/features/playlist/pages/custom_playlists_page.dart';
+import 'package:sangeet/services/sharing/share_service.dart';
+import 'package:sangeet/features/sharing/widgets/share_bottom_sheet.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 
@@ -241,6 +242,14 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
                       const Spacer(),
                       if (_sortedTracks.isNotEmpty) ...[
                         IconButton(
+                          onPressed: () {
+                            final shareData = ShareService.instance.createPlaylistShare(playlist);
+                            ShareBottomSheet.show(context, shareData);
+                          },
+                          icon: const Icon(Iconsax.share),
+                          tooltip: 'Share',
+                        ),
+                        IconButton(
                           onPressed: _showSortOptions,
                           icon: const Icon(Iconsax.sort),
                           tooltip: 'Sort',
@@ -311,7 +320,12 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
                   final track = _sortedTracks[index];
                   final currentTrack = ref.watch(currentTrackProvider).valueOrNull;
                   final isPlaying = ref.watch(isPlayingProvider).valueOrNull ?? false;
-                  final isCurrentTrack = currentTrack?.id == track.id;
+                  // Compare by ID first, then by title+artist (for imported playlists where IDs differ after matching)
+                  final isCurrentTrack = currentTrack != null && (
+                    currentTrack.id == track.id ||
+                    (currentTrack.title.toLowerCase() == track.title.toLowerCase() &&
+                     currentTrack.artist.toLowerCase() == track.artist.toLowerCase())
+                  );
                   final audioService = ref.watch(audioPlayerServiceProvider);
                   
                   return Dismissible(
@@ -459,13 +473,6 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
           // Bottom padding for mini player
           const SliverGap(100),
         ],
-      ),
-      // Mini Player (only show on mobile, desktop has its own player bar)
-      bottomNavigationBar: _isDesktop ? null : const SafeArea(
-        child: Padding(
-          padding: EdgeInsets.only(bottom: 8),
-          child: MiniPlayer(),
-        ),
       ),
     );
   }

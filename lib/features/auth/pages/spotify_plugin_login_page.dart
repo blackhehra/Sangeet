@@ -3,8 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sangeet/services/spotify_plugin/spotify_plugin.dart';
 import 'package:sangeet/shared/providers/spotify_plugin_provider.dart';
 
-/// Spotify login page using Spotube's plugin system
-/// This provides the same authentication flow that Spotube uses
+/// Spotify login page using the plugin system
 class SpotifyPluginLoginPage extends ConsumerStatefulWidget {
   const SpotifyPluginLoginPage({super.key});
 

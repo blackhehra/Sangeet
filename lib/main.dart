@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:desktop_webview_window/desktop_webview_window.dart';
@@ -39,6 +40,9 @@ void main(List<String> args) async {
   // Run app in a zone that filters out multicast DNS errors
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
+    
+    // Load environment variables
+    await dotenv.load(fileName: ".env");
     
     // Fix SSL certificate verification issues on Windows
     // This allows self-signed or problematic certificates to work

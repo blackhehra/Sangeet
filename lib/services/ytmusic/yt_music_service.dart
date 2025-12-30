@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:sangeet/services/ytmusic/nav.dart';
 import 'package:sangeet/services/ytmusic/playlist_utils.dart';
 import 'package:sangeet/models/track.dart';
@@ -11,9 +12,9 @@ class YtMusicService {
   static const String _ytmDomain = 'music.youtube.com';
   static const String _httpsYtmDomain = 'https://music.youtube.com';
   static const String _baseApiEndpoint = '/youtubei/v1/';
-  static const Map<String, String> _ytmParams = {
+  static Map<String, String> get _ytmParams => {
     'alt': 'json',
-    'key': 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30',
+    'key': dotenv.env['YTM_API_KEY'] ?? '',
   };
   static const String _userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0';

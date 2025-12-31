@@ -1,0 +1,18 @@
+[
+    {
+        "merged": "io.flutterfastkit.fk_user_agent-release-23:/layout-v21/notification_template_icon_group.xml",
+        "source": "io.flutterfastkit.fk_user_agent-core-1.13.1-12:/layout-v21/notification_template_icon_group.xml"
+    },
+    {
+        "merged": "io.flutterfastkit.fk_user_agent-release-23:/layout-v21/notification_template_custom_big.xml",
+        "source": "io.flutterfastkit.fk_user_agent-core-1.13.1-12:/layout-v21/notification_template_custom_big.xml"
+    },
+    {
+        "merged": "io.flutterfastkit.fk_user_agent-release-23:/layout-v21/notification_action_tombstone.xml",
+        "source": "io.flutterfastkit.fk_user_agent-core-1.13.1-12:/layout-v21/notification_action_tombstone.xml"
+    },
+    {
+        "merged": "io.flutterfastkit.fk_user_agent-release-23:/layout-v21/notification_action.xml",
+        "source": "io.flutterfastkit.fk_user_agent-core-1.13.1-12:/layout-v21/notification_action.xml"
+    }
+]

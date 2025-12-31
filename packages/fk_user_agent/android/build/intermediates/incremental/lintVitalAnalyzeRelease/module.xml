@@ -1,0 +1,26 @@
+<lint-module
+    format="1"
+    dir="D:\PubCache\git\fk_user_agent-922f9f9eafd8b501da83dca67d56b2887fa8f916\android"
+    name=":fk_user_agent"
+    type="LIBRARY"
+    maven="io.flutterfastkit.fk_user_agent:fk_user_agent:2.1.1"
+    agpVersion="8.9.1"
+    buildFolder="build"
+    bootClassPath="C:\Users\Simar\AppData\Local\Android\sdk\platforms\android-30\android.jar;C:\Users\Simar\AppData\Local\Android\sdk\build-tools\35.0.0\core-lambda-stubs.jar"
+    javaSourceLevel="1.8"
+    compileTarget="android-30"
+    neverShrinking="true">
+  <lintOptions
+      disable="InvalidPackage"
+      abortOnError="true"
+      absolutePaths="true"
+      checkReleaseBuilds="true"
+      explainIssues="true">
+    <severities>
+      <severity
+        id="InvalidPackage"
+        severity="IGNORE" />
+    </severities>
+  </lintOptions>
+  <variant name="release"/>
+</lint-module>

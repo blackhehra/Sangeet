@@ -1,0 +1,18 @@
+[
+    {
+        "merged": "io.flutterfastkit.fk_user_agent-release-23:/drawable/notification_icon_background.xml",
+        "source": "io.flutterfastkit.fk_user_agent-core-1.13.1-12:/drawable/notification_icon_background.xml"
+    },
+    {
+        "merged": "io.flutterfastkit.fk_user_agent-release-23:/drawable/notification_bg_low.xml",
+        "source": "io.flutterfastkit.fk_user_agent-core-1.13.1-12:/drawable/notification_bg_low.xml"
+    },
+    {
+        "merged": "io.flutterfastkit.fk_user_agent-release-23:/drawable/notification_bg.xml",
+        "source": "io.flutterfastkit.fk_user_agent-core-1.13.1-12:/drawable/notification_bg.xml"
+    },
+    {
+        "merged": "io.flutterfastkit.fk_user_agent-release-23:/drawable/notification_tile_bg.xml",
+        "source": "io.flutterfastkit.fk_user_agent-core-1.13.1-12:/drawable/notification_tile_bg.xml"
+    }
+]

@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="utf-8"?>
+<merger version="3"><dataSet config="main" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="D:\PubCache\git\fk_user_agent-922f9f9eafd8b501da83dca67d56b2887fa8f916\android\src\main\shaders"/></dataSet><dataSet config="release" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="D:\PubCache\git\fk_user_agent-922f9f9eafd8b501da83dca67d56b2887fa8f916\android\src\release\shaders"/></dataSet></merger>

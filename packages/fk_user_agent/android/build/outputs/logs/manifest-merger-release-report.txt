@@ -1,0 +1,17 @@
+-- Merging decision tree log ---
+manifest
+ADDED from D:\PubCache\git\fk_user_agent-922f9f9eafd8b501da83dca67d56b2887fa8f916\android\src\main\AndroidManifest.xml:1:1-3:12
+INJECTED from D:\PubCache\git\fk_user_agent-922f9f9eafd8b501da83dca67d56b2887fa8f916\android\src\main\AndroidManifest.xml:1:1-3:12
+	package
+		ADDED from D:\PubCache\git\fk_user_agent-922f9f9eafd8b501da83dca67d56b2887fa8f916\android\src\main\AndroidManifest.xml:2:3-44
+		INJECTED from D:\PubCache\git\fk_user_agent-922f9f9eafd8b501da83dca67d56b2887fa8f916\android\src\main\AndroidManifest.xml
+	xmlns:android
+		ADDED from D:\PubCache\git\fk_user_agent-922f9f9eafd8b501da83dca67d56b2887fa8f916\android\src\main\AndroidManifest.xml:1:11-69
+uses-sdk
+INJECTED from D:\PubCache\git\fk_user_agent-922f9f9eafd8b501da83dca67d56b2887fa8f916\android\src\main\AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from D:\PubCache\git\fk_user_agent-922f9f9eafd8b501da83dca67d56b2887fa8f916\android\src\main\AndroidManifest.xml
+INJECTED from D:\PubCache\git\fk_user_agent-922f9f9eafd8b501da83dca67d56b2887fa8f916\android\src\main\AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from D:\PubCache\git\fk_user_agent-922f9f9eafd8b501da83dca67d56b2887fa8f916\android\src\main\AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from D:\PubCache\git\fk_user_agent-922f9f9eafd8b501da83dca67d56b2887fa8f916\android\src\main\AndroidManifest.xml

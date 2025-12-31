@@ -1,0 +1,45 @@
+name: iOS Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.35.6'
+        channel: 'stable'
+        
+    - name: Create .env file
+      run: echo "YTM_API_KEY=${{ secrets.YTM_API_KEY }}" > .env
+      
+    - name: Install dependencies
+      run: flutter pub get
+      
+    - name: Build iOS (no signing)
+      run: |
+        flutter build ios --release --no-codesign
+        
+    - name: Create IPA structure
+      run: |
+        mkdir -p Payload
+        cp -r build/ios/iphoneos/Runner.app Payload/
+        zip -r Sangeet-unsigned.ipa Payload
+        
+    - name: Upload IPA artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: sangeet-ios-unsigned
+        path: Sangeet-unsigned.ipa
+        retention-days: 30

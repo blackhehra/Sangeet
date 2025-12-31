@@ -35,11 +35,11 @@ jobs:
       run: |
         mkdir -p Payload
         cp -r build/ios/iphoneos/Runner.app Payload/
-        zip -r Sangeet-unsigned.ipa Payload
+        zip -r Sangeet-iOS.ipa Payload
         
     - name: Upload IPA artifact
       uses: actions/upload-artifact@v4
       with:
-        name: sangeet-ios-unsigned
-        path: Sangeet-unsigned.ipa
+        name: Sangeet-iOS-1.0.0-beta.1
+        path: Sangeet-iOS.ipa
         retention-days: 30

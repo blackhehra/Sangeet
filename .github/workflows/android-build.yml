@@ -36,19 +36,12 @@ jobs:
     - name: Build Android APK
       run: flutter build apk --release
       
-    - name: Build Android App Bundle (AAB)
-      run: flutter build appbundle --release
+    - name: Build Android Apk Debug
+      run: flutter build apk --debug
       
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Sangeet-Android-APK-1.0.0-beta.1
+        name: Sangeet-Android-1.0.0-beta.1
         path: build/app/outputs/flutter-apk/app-release.apk
-        retention-days: 30
-        
-    - name: Upload AAB artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: Sangeet-Android-AAB-1.0.0-beta.1
-        path: build/app/outputs/bundle/release/app-release.aab
         retention-days: 30

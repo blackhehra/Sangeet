@@ -13,22 +13,42 @@ Stream your favorite music with a beautiful, modern interface and powerful featu
 
 ---
 
-## 🌟 Features
+## ✨ Features
 
-- 🎵 **Stream Music** - High-quality audio streaming with adaptive quality
-- 🔍 **Smart Search** - Find your favorite songs, artists, and albums instantly
-- 📱 **Cross-Platform** - Available on Android and iOS
-- 🎨 **Beautiful UI** - Modern, intuitive interface with smooth animations
-- 🎧 **Background Playback** - Listen while using other apps
-- 📻 **Lock Screen Controls** - Full media controls on lock screen
-- 💾 **Smart Caching** - Intelligent caching for faster playback and offline listening
-- 🔄 **Auto-Retry** - Automatic retry mechanism for failed tracks
-- ⚡ **Fast Loading** - Optimized track matching and streaming
-- 🎼 **Synced Lyrics** - Time-synchronized lyrics display
-- 📊 **Equalizer** - Built-in audio equalizer for customized sound
-- 🔊 **Bluetooth Support** - Seamless Bluetooth audio device integration
-- 🌙 **Dark Mode** - Eye-friendly dark theme
-- 🚀 **Native Performance** - Built with Flutter for smooth 60fps experience
+### 🎵 Playback & Streaming
+- **High-Quality Audio Streaming** - Stream music from YouTube Music with adaptive quality
+- **Background Playback** - Continue listening while using other apps or when screen is off
+- **Persistent Stream Cache** - Smart caching system that remembers stream URLs across app restarts for instant playback
+- **Auto-Retry Logic** - Automatic retry mechanism with exponential backoff for failed tracks
+- **Priority Track Matching** - Intelligent matching algorithm that prioritizes currently playing tracks
+- **Offline Cache** - Download and cache songs for offline listening
+
+### 🎨 User Interface
+- **Modern Material Design 3** - Beautiful, intuitive interface following latest design guidelines
+- **Smooth Animations** - 60fps performance with fluid transitions and animations
+- **Dark Mode** - Eye-friendly dark theme with dynamic colors
+- **Lock Screen Controls** - Full media controls on lock screen and notification shade
+- **Mini Player** - Persistent mini player for quick access to playback controls
+
+### 🔍 Discovery & Organization
+- **Smart Search** - Find songs, artists, albums, and playlists instantly
+- **Playlist Management** - Create, edit, and organize your playlists
+- **Queue Management** - Reorder, add, or remove songs from the playback queue
+- **Listening History** - Track your recently played songs
+- **Quick Picks** - Personalized music recommendations
+
+### 🎼 Advanced Features
+- **Synced Lyrics** - Time-synchronized lyrics display with auto-scroll
+- **Audio Equalizer** - Built-in equalizer with presets and custom settings
+- **Bluetooth Support** - Seamless integration with Bluetooth audio devices
+- **Sleep Timer** - Auto-stop playback after a set duration
+- **Crossfade** - Smooth transitions between tracks
+
+### 🚀 Performance
+- **Native Performance** - Built with Flutter for smooth, native-like experience
+- **Optimized Track Matching** - Background pre-fetching and caching for instant playback
+- **Low Data Usage** - Efficient streaming with minimal data consumption
+- **Fast App Startup** - Optimized initialization for quick app launch
 
 ## 📥 Installation
 
@@ -40,8 +60,10 @@ Stream your favorite music with a beautiful, modern interface and powerful featu
 
 **Latest Release:** Download the APK from [GitHub Releases](https://github.com/blackhehra/Sangeet/releases/latest)
 
+[![Latest Release](https://img.shields.io/github/v/release/blackhehra/Sangeet?label=Latest%20Version)](https://github.com/blackhehra/Sangeet/releases/latest)
+
 **Installation Steps:**
-1. Download `Sangeet-Android-1.0.0-beta.1.apk`
+1. Download the latest APK from the releases page
 2. Enable "Install from Unknown Sources" in your device settings
 3. Open the APK file and install
 
@@ -54,7 +76,7 @@ Stream your favorite music with a beautiful, modern interface and powerful featu
 **Note:** iOS installation requires sideloading with [AltStore](https://altstore.io/) or similar tools.
 
 **Installation Steps:**
-1. Download `Sangeet-iOS.ipa` from [GitHub Releases](https://github.com/blackhehra/Sangeet/releases/latest)
+1. Download the latest IPA from [GitHub Releases](https://github.com/blackhehra/Sangeet/releases/latest)
 2. Install AltStore on your iOS device
 3. Use AltStore to sideload the IPA file
 
@@ -139,6 +161,14 @@ Sangeet is built with a modern, scalable architecture:
 ## 📄 License
 
 This project is licensed under the BSD-4-Clause License - see the [LICENSE](LICENSE) file for details.
+
+## ⚠️ Disclaimer
+
+This project and its contents are not affiliated with, funded, authorized, endorsed by, or in any way associated with YouTube, Google LLC, or any of its affiliates and subsidiaries.
+
+Any trademark, service mark, trade name, or other intellectual property rights used in this project are owned by the respective owners.
+
+Sangeet is an independent application that uses publicly available APIs and services. Users are responsible for complying with YouTube's Terms of Service.
 
 ## 🙏 Acknowledgments
 

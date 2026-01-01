@@ -473,6 +473,7 @@ class AudioPlayerService {
       } else {
         // Max retries exceeded - stop buffering and try next track
         print('AudioPlayer: Max auto-retries exceeded, skipping to next track');
+        _cancelBufferingTimeout(); // Cancel timer before skipping to prevent cascading failures
         _bufferingController.add(false);
         _autoRetryCount = 0;
         if (_queue.length > 1 && _currentIndex < _queue.length - 1) {

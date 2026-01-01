@@ -41,11 +41,21 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   final FocusNode _focusNode = FocusNode();
   final SearchHistoryService _historyService = SearchHistoryService.instance;
   String _lastQuery = '';
+  bool _isSearchFocused = false; // Track if search bar is focused
 
   @override
   void initState() {
     super.initState();
     _loadSearchHistory();
+    
+    // Listen to focus changes
+    _focusNode.addListener(() {
+      if (mounted) {
+        setState(() {
+          _isSearchFocused = _focusNode.hasFocus;
+        });
+      }
+    });
   }
 
   Future<void> _loadSearchHistory() async {
@@ -62,7 +72,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     super.dispose();
   }
 
-  Future<void> _performSearch(String query, {SearchFilter? filter, bool saveToHistory = true}) async {
+  Future<void> _performSearch(String query, {SearchFilter? filter}) async {
     if (query.isEmpty) {
       ref.read(searchResultsLocalProvider.notifier).state = [];
       ref.read(artistResultsProvider.notifier).state = [];
@@ -74,11 +84,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     final SearchFilter searchFilter = filter ?? ref.read(searchFilterProvider);
     ref.read(searchLoadingProvider.notifier).state = true;
     
-    // Save to search history
-    if (saveToHistory) {
-      await _historyService.addSearch(query);
-      ref.read(searchHistoryProvider.notifier).state = _historyService.getRecentSearches();
-    }
+    // NOTE: Do NOT save to history here - only save when user clicks on a result
     
     try {
       final musicSource = ref.read(musicSourceProvider);
@@ -113,13 +119,21 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   void _onFilterChanged(SearchFilter filter) {
     ref.read(searchFilterProvider.notifier).state = filter;
     if (_lastQuery.isNotEmpty) {
-      _performSearch(_lastQuery, filter: filter, saveToHistory: false);
+      _performSearch(_lastQuery, filter: filter);
     }
+  }
+  
+  /// Save query to history - called only when user clicks on a result
+  Future<void> _saveToHistory(String query) async {
+    if (query.trim().isEmpty) return;
+    await _historyService.addSearch(query);
+    ref.read(searchHistoryProvider.notifier).state = _historyService.getRecentSearches();
   }
   
   void _searchFromHistory(String query) {
     _searchController.text = query;
-    _performSearch(query, saveToHistory: false);
+    _focusNode.unfocus(); // Unfocus to hide history
+    _performSearch(query);
   }
   
   Future<void> _removeFromHistory(String query) async {
@@ -223,7 +237,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                           _MusicSourceToggle(
                             onSourceChanged: () {
                               if (_lastQuery.isNotEmpty) {
-                                _performSearch(_lastQuery, saveToHistory: false);
+                                _performSearch(_lastQuery);
                               }
                             },
                           ),
@@ -267,8 +281,8 @@ class _SearchPageState extends ConsumerState<SearchPage> {
           
           // Content
           if (_searchController.text.isEmpty) ...[
-            // Search History Section
-            if (ref.watch(searchHistoryProvider).isNotEmpty) ...[
+            // Search History Section - only show when search bar is focused
+            if (_isSearchFocused && ref.watch(searchHistoryProvider).isNotEmpty) ...[
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -461,6 +475,8 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                     return _SearchResultTile(
                       track: track,
                       onTap: () {
+                        // Save to history when user clicks on a result
+                        _saveToHistory(_lastQuery);
                         final audioService = ref.read(audioPlayerServiceProvider);
                         audioService.playAll(searchResults, startIndex: index);
                       },
@@ -515,6 +531,8 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                     return _ArtistResultTile(
                       artist: artist,
                       onTap: () {
+                        // Save to history when user clicks on a result
+                        _saveToHistory(_lastQuery);
                         // Use navigation provider on desktop, Navigator on mobile
                         final isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
                         if (isDesktop) {
@@ -587,6 +605,8 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                     return _AlbumResultTile(
                       album: album,
                       onTap: () {
+                        // Save to history when user clicks on a result
+                        _saveToHistory(_lastQuery);
                         // Use navigation provider on desktop, Navigator on mobile
                         final isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
                         if (isDesktop) {

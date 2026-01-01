@@ -86,7 +86,15 @@ class BluetoothAudioService {
   /// Check for connected Bluetooth audio devices
   Future<void> _checkConnectedDevices() async {
     try {
-      // Check if Bluetooth is on
+      // First try to get system-level connected audio devices via platform channel
+      final device = await _getSystemAudioDevice();
+      if (device != null) {
+        _currentDevice = device;
+        _connectedDeviceController.add(_currentDevice);
+        return;
+      }
+
+      // Fallback: Check if Bluetooth is on and scan for connected devices
       final adapterState = await FlutterBluePlus.adapterState.first;
       if (adapterState != BluetoothAdapterState.on) {
         _currentDevice = null;
@@ -94,7 +102,7 @@ class BluetoothAudioService {
         return;
       }
 
-      // Get connected devices
+      // Get connected devices through flutter_blue_plus
       final connectedDevices = FlutterBluePlus.connectedDevices;
       
       if (connectedDevices.isNotEmpty) {
@@ -136,6 +144,31 @@ class BluetoothAudioService {
       _currentDevice = null;
       _connectedDeviceController.add(null);
     }
+  }
+
+  /// Get system-level connected audio device via platform channel
+  Future<AudioDevice?> _getSystemAudioDevice() async {
+    try {
+      const platform = MethodChannel('com.sangeet.audio/bluetooth');
+      final result = await platform.invokeMethod('getConnectedAudioDevice');
+      
+      if (result != null && result is Map) {
+        final name = result['name'] as String?;
+        final type = result['type'] as String?;
+        
+        if (name != null && type == 'bluetooth') {
+          return AudioDevice(
+            name: name,
+            id: result['id'] as String? ?? 'system',
+            type: AudioDeviceType.bluetooth,
+          );
+        }
+      }
+    } catch (e) {
+      // Platform channel not implemented or error - fallback to flutter_blue_plus
+      print('BluetoothAudioService: Platform channel not available: $e');
+    }
+    return null;
   }
 
   /// Check if device name suggests it's an audio device

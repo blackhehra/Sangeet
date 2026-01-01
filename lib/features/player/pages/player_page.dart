@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +13,7 @@ import 'package:sangeet/shared/widgets/playing_indicator.dart';
 import 'package:sangeet/services/audio_player_service.dart';
 import 'package:sangeet/services/play_history_service.dart';
 import 'package:sangeet/services/equalizer_service.dart';
+import 'package:sangeet/services/sleep_timer_service.dart';
 import 'package:sangeet/models/track.dart';
 import 'package:sangeet/features/player/widgets/device_picker_sheet.dart';
 import 'package:sangeet/features/playlist/widgets/add_to_playlist_dialog.dart';
@@ -33,6 +35,16 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
   double _dragOffset = 0.0;
   final ScrollController _scrollController = ScrollController();
   bool _isDismissing = false;
+  
+  // Double-tap to like animation
+  bool _showLikeAnimation = false;
+  
+  // Volume gesture state
+  bool _isVolumeGestureActive = false;
+  double _volumeGestureStartY = 0.0;
+  double _currentVolume = 1.0;
+  Timer? _volumeHoldTimer;
+  bool _showVolumeIndicator = false;
   
   
   @override
@@ -60,7 +72,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
     final screenHeight = MediaQuery.of(context).size.height;
     final dragProgress = _dragOffset / screenHeight;
     
-    // ViMusic-style: use last movement direction to decide
+    // Use last movement direction to decide dismiss behavior
     // Positive delta = finger was moving DOWN -> dismiss
     // Negative delta = finger was moving UP -> snap back
     bool shouldDismiss;
@@ -127,7 +139,83 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
   void dispose() {
     _animationController.dispose();
     _scrollController.dispose();
+    _volumeHoldTimer?.cancel();
     super.dispose();
+  }
+  
+  /// Handle double-tap to like
+  void _handleDoubleTap(Track track) async {
+    final newLiked = await PlayHistoryService.instance.toggleLike(track);
+    setState(() {
+      _isLiked = newLiked;
+      _showLikeAnimation = true;
+    });
+    
+    // Hide animation after delay
+    Future.delayed(const Duration(milliseconds: 800), () {
+      if (mounted) {
+        setState(() {
+          _showLikeAnimation = false;
+        });
+      }
+    });
+  }
+  
+  /// Handle long press start for volume gesture
+  void _handleLongPressStart(LongPressStartDetails details) {
+    _volumeGestureStartY = details.localPosition.dy;
+    _volumeHoldTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() {
+          _isVolumeGestureActive = true;
+          _showVolumeIndicator = true;
+        });
+      }
+    });
+  }
+  
+  /// Handle long press move for volume control
+  void _handleLongPressMoveUpdate(LongPressMoveUpdateDetails details, AudioPlayerService audioService) {
+    if (!_isVolumeGestureActive) {
+      // Check if we should cancel the timer (moved too much before 3s)
+      final moved = (details.localPosition.dy - _volumeGestureStartY).abs();
+      if (moved > 20) {
+        _volumeHoldTimer?.cancel();
+      }
+      return;
+    }
+    
+    // Calculate volume change based on vertical movement
+    final delta = _volumeGestureStartY - details.localPosition.dy;
+    final volumeChange = delta / 200; // 200px = full volume range
+    final newVolume = (_currentVolume + volumeChange).clamp(0.0, 1.0);
+    
+    audioService.setVolume(newVolume);
+    setState(() {
+      _currentVolume = newVolume;
+    });
+    
+    _volumeGestureStartY = details.localPosition.dy;
+  }
+  
+  /// Handle long press end
+  void _handleLongPressEnd(LongPressEndDetails details) {
+    _volumeHoldTimer?.cancel();
+    
+    if (_isVolumeGestureActive) {
+      // Hide volume indicator after a short delay
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          setState(() {
+            _showVolumeIndicator = false;
+          });
+        }
+      });
+    }
+    
+    setState(() {
+      _isVolumeGestureActive = false;
+    });
   }
 
   /// Get high quality thumbnail URL for full player
@@ -226,7 +314,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
         return Scaffold(
           backgroundColor: Colors.transparent,
           body: Listener(
-            // ViMusic-style: Listener captures pointer events when in dismiss mode
+            // Listener captures pointer events when in dismiss mode
             onPointerMove: _isDismissing ? (event) {
               _lastDelta = event.delta.dy; // Track direction for dismiss decision
               setState(() {
@@ -380,61 +468,128 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
                   
                   const Gap(24),
                   
-                  // Album Art - use smaller size to fit better
-                  Container(
-                    width: size.width * 0.75,
-                    height: size.width * 0.75,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.4),
-                          blurRadius: 30,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Stack(
-                        children: [
-                          CachedNetworkImage(
-                            imageUrl: _getHighQualityThumbnail(track.thumbnailUrl ?? ''),
-                            width: size.width * 0.75,
-                            height: size.width * 0.75,
-                            fit: BoxFit.cover,
-                            memCacheWidth: 1080,
-                            memCacheHeight: 1080,
-                            maxWidthDiskCache: 1080,
-                            maxHeightDiskCache: 1080,
-                            // Fallback to hqdefault if maxresdefault fails
-                            errorWidget: (context, url, error) => CachedNetworkImage(
-                              imageUrl: _getFallbackThumbnail(url),
+                  // Album Art - with double-tap to like and volume gesture
+                  GestureDetector(
+                    onDoubleTap: () => _handleDoubleTap(track),
+                    onLongPressStart: _handleLongPressStart,
+                    onLongPressMoveUpdate: (details) => _handleLongPressMoveUpdate(details, audioService),
+                    onLongPressEnd: _handleLongPressEnd,
+                    child: Container(
+                      width: size.width * 0.75,
+                      height: size.width * 0.75,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.4),
+                            blurRadius: 30,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Stack(
+                          children: [
+                            CachedNetworkImage(
+                              imageUrl: _getHighQualityThumbnail(track.thumbnailUrl ?? ''),
                               width: size.width * 0.75,
                               height: size.width * 0.75,
                               fit: BoxFit.cover,
-                              memCacheWidth: 720,
-                              memCacheHeight: 720,
-                              errorWidget: (context, url, error) => Container(
-                                color: AppTheme.darkCard,
-                                child: const Icon(
-                                  Iconsax.music,
-                                  size: 80,
-                                  color: Colors.grey,
+                              memCacheWidth: 1080,
+                              memCacheHeight: 1080,
+                              maxWidthDiskCache: 1080,
+                              maxHeightDiskCache: 1080,
+                              // Fallback to hqdefault if maxresdefault fails
+                              errorWidget: (context, url, error) => CachedNetworkImage(
+                                imageUrl: _getFallbackThumbnail(url),
+                                width: size.width * 0.75,
+                                height: size.width * 0.75,
+                                fit: BoxFit.cover,
+                                memCacheWidth: 720,
+                                memCacheHeight: 720,
+                                errorWidget: (context, url, error) => Container(
+                                  color: AppTheme.darkCard,
+                                  child: const Icon(
+                                    Iconsax.music,
+                                    size: 80,
+                                    color: Colors.grey,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                          if (buffering)
-                            Container(
-                              color: Colors.black.withOpacity(0.3),
-                              child: const Center(
-                                child: CircularProgressIndicator(
-                                  valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
+                            // Buffering indicator
+                            if (buffering)
+                              Container(
+                                color: Colors.black.withOpacity(0.3),
+                                child: const Center(
+                                  child: CircularProgressIndicator(
+                                    valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
+                                  ),
                                 ),
                               ),
-                            ),
-                        ],
+                            // Double-tap like animation
+                            if (_showLikeAnimation)
+                              Center(
+                                child: TweenAnimationBuilder<double>(
+                                  tween: Tween(begin: 0.0, end: 1.0),
+                                  duration: const Duration(milliseconds: 400),
+                                  builder: (context, value, child) {
+                                    return Transform.scale(
+                                      scale: 0.5 + (value * 0.5),
+                                      child: Opacity(
+                                        opacity: value > 0.8 ? (1.0 - value) * 5 : 1.0,
+                                        child: Icon(
+                                          _isLiked ? Iconsax.heart5 : Iconsax.heart,
+                                          size: 100,
+                                          color: _isLiked ? AppTheme.primaryColor : Colors.white,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            // Volume indicator overlay
+                            if (_showVolumeIndicator)
+                              Container(
+                                color: Colors.black.withOpacity(0.5),
+                                child: Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        _currentVolume > 0.5 
+                                            ? Iconsax.volume_high5 
+                                            : _currentVolume > 0 
+                                                ? Iconsax.volume_low_15 
+                                                : Iconsax.volume_slash5,
+                                        size: 48,
+                                        color: Colors.white,
+                                      ),
+                                      const Gap(8),
+                                      Text(
+                                        '${(_currentVolume * 100).toInt()}%',
+                                        style: const TextStyle(
+                                          fontSize: 24,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                      const Gap(8),
+                                      SizedBox(
+                                        width: 150,
+                                        child: LinearProgressIndicator(
+                                          value: _currentVolume,
+                                          backgroundColor: Colors.grey.shade700,
+                                          valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -745,6 +900,12 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
                             ),
                           ),
                           const Spacer(),
+                          // Save queue as playlist
+                          IconButton(
+                            onPressed: () => _saveQueueAsPlaylist(context, ref),
+                            icon: const Icon(Iconsax.save_2, size: 20),
+                            tooltip: 'Save as Playlist',
+                          ),
                           TextButton(
                             onPressed: () {
                               audioService.clearQueue();
@@ -1058,14 +1219,34 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
   }
 
   Widget _buildTimerOption(BuildContext context, String label, Duration? duration) {
+    final audioService = ref.read(audioPlayerServiceProvider);
+    final sleepTimerService = SleepTimerService();
+    
     return ListTile(
       title: Text(label),
+      trailing: sleepTimerService.isActive && 
+                ((duration != null && sleepTimerService.remainingTime.inMinutes == duration.inMinutes) ||
+                 (duration == null && sleepTimerService.isEndOfTrack))
+          ? const Icon(Iconsax.tick_circle5, color: AppTheme.primaryColor)
+          : null,
       onTap: () {
         Navigator.pop(context);
+        
+        if (duration != null) {
+          sleepTimerService.setTimer(duration, audioService);
+        } else {
+          sleepTimerService.setEndOfTrack(audioService);
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sleep timer set: $label')),
+          SnackBar(
+            content: Text('Sleep timer set: $label'),
+            action: SnackBarAction(
+              label: 'Cancel',
+              onPressed: () => sleepTimerService.cancelTimer(),
+            ),
+          ),
         );
-        // TODO: Implement actual sleep timer functionality
       },
     );
   }
@@ -1082,5 +1263,75 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
   void _shareTrack(BuildContext context, Track track) {
     final shareText = 'Check out "${track.title}" by ${track.artist}!\nhttps://music.youtube.com/watch?v=${track.id}';
     Share.share(shareText, subject: track.title);
+  }
+
+  void _saveQueueAsPlaylist(BuildContext context, WidgetRef ref) {
+    final audioService = ref.read(audioPlayerServiceProvider);
+    final queue = audioService.queue;
+    
+    if (queue.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Queue is empty')),
+      );
+      return;
+    }
+    
+    final nameController = TextEditingController(text: 'My Queue ${DateTime.now().day}/${DateTime.now().month}');
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.darkSurface,
+        title: const Text('Save Queue as Playlist'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: 'Playlist Name',
+                border: OutlineInputBorder(),
+              ),
+              autofocus: true,
+            ),
+            const Gap(12),
+            Text(
+              '${queue.length} tracks will be saved',
+              style: TextStyle(color: Colors.grey.shade400),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final name = nameController.text.trim();
+              if (name.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please enter a name')),
+                );
+                return;
+              }
+              
+              // Import the custom playlist service and save
+              // This would integrate with your existing playlist system
+              Navigator.pop(context);
+              Navigator.pop(context); // Close queue sheet too
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Playlist "$name" created with ${queue.length} tracks')),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
   }
 }

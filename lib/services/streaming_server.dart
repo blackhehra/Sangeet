@@ -320,8 +320,7 @@ class StreamingServer {
   }
   
   /// Save stream URL cache to persistent storage
-  /// Made public so it can be called on app lifecycle events (iOS needs this)
-  Future<void> saveStreamCache() async {
+  Future<void> _saveStreamCache() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final Map<String, dynamic> data = {};
@@ -334,7 +333,6 @@ class StreamingServer {
       }
       
       await prefs.setString(_streamCacheKey, jsonEncode(data));
-      print('StreamingServer: Saved ${data.length} stream URLs to cache');
     } catch (e) {
       print('StreamingServer: Error saving stream cache: $e');
     }
@@ -440,8 +438,8 @@ class StreamingServer {
       );
       print('StreamingServer: Stream ready via ${result.source} in ${elapsed}ms');
       
-      // Save to persistent storage for app restart (await for iOS reliability)
-      await saveStreamCache();
+      // Save to persistent storage for app restart
+      _saveStreamCache();
       
       return true;
     }

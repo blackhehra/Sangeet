@@ -5,6 +5,7 @@ import 'package:sangeet/services/youtube_service.dart';
 import 'package:sangeet/services/ytmusic/yt_music_service.dart';
 import 'package:sangeet/services/settings_service.dart';
 import 'package:sangeet/services/user_preferences_service.dart';
+import 'package:sangeet/services/user_taste_service.dart';
 
 // Random seed that changes on each app launch/refresh for variety
 final _randomSeed = Random();
@@ -176,33 +177,120 @@ final englishPopProvider = FutureProvider<List<Track>>((ref) async {
   return _searchWithSource(ref, 'english pop songs 2024', limit: 10);
 });
 
-// Artist-based recommendations
+// Artist-based recommendations - blends selected artists with discovered taste
 final forYouProvider = FutureProvider<List<Track>>((ref) async {
   final prefs = ref.watch(userPreferencesServiceProvider);
+  final tasteService = UserTasteService.instance;
+  await tasteService.init();
   
-  if (prefs.selectedArtists.length > 1) {
-    // Mix songs from multiple artists
-    final tracks = <Track>[];
+  final tracks = <Track>[];
+  
+  // PRIMARY: Selected artists (80%)
+  if (prefs.selectedArtists.isNotEmpty) {
     for (int i = 0; i < prefs.selectedArtists.length && i < 3; i++) {
       final artist = prefs.selectedArtists[i];
       final artistTracks = await _searchWithSource(ref, '${artist.name} best songs', limit: 4);
       tracks.addAll(artistTracks);
     }
-    tracks.shuffle();
-    return tracks.take(10).toList();
   }
   
-  return _searchWithSource(ref, 'popular songs 2024', limit: 10);
+  // SECONDARY: Discovered taste artists (20%)
+  final influenceScore = tasteService.getTasteInfluenceScore();
+  if (influenceScore > 0) {
+    final discoveredArtists = tasteService.getTopDiscoveredArtists(limit: 2);
+    for (final artist in discoveredArtists) {
+      final artistTracks = await _searchWithSource(ref, '$artist songs', limit: 2);
+      tracks.addAll(artistTracks);
+    }
+  }
+  
+  if (tracks.isEmpty) {
+    return _searchWithSource(ref, 'popular songs 2024', limit: 10);
+  }
+  
+  // Remove duplicates and shuffle
+  final uniqueTracks = <String, Track>{};
+  for (final track in tracks) {
+    uniqueTracks[track.id] = track;
+  }
+  final result = uniqueTracks.values.toList()..shuffle();
+  return result.take(10).toList();
 });
 
-// Second artist recommendations
+// Second artist recommendations - includes discovered genres
 final moreFromArtistsProvider = FutureProvider<List<Track>>((ref) async {
   final prefs = ref.watch(userPreferencesServiceProvider);
+  final tasteService = UserTasteService.instance;
+  await tasteService.init();
   
+  final tracks = <Track>[];
+  
+  // PRIMARY: Third selected artist
   if (prefs.selectedArtists.length > 2) {
     final artist = prefs.selectedArtists[2];
-    return _searchWithSource(ref, '${artist.name} songs', limit: 10);
+    final artistTracks = await _searchWithSource(ref, '${artist.name} songs', limit: 8);
+    tracks.addAll(artistTracks);
   }
   
-  return _searchWithSource(ref, 'indie music 2024', limit: 10);
+  // SECONDARY: Discovered genres
+  final topGenres = tasteService.getTopGenres(limit: 2);
+  for (final genre in topGenres) {
+    final genreTracks = await _searchWithSource(ref, '$genre music', limit: 2);
+    tracks.addAll(genreTracks);
+  }
+  
+  if (tracks.isEmpty) {
+    return _searchWithSource(ref, 'indie music 2024', limit: 10);
+  }
+  
+  // Remove duplicates and shuffle
+  final uniqueTracks = <String, Track>{};
+  for (final track in tracks) {
+    uniqueTracks[track.id] = track;
+  }
+  final result = uniqueTracks.values.toList()..shuffle();
+  return result.take(10).toList();
+});
+
+// Discovered taste section - shows songs based on user's listening behavior
+final discoveredForYouProvider = FutureProvider<List<Track>>((ref) async {
+  final tasteService = UserTasteService.instance;
+  await tasteService.init();
+  
+  final influenceScore = tasteService.getTasteInfluenceScore();
+  if (influenceScore == 0) {
+    // No taste data yet, return empty
+    return [];
+  }
+  
+  final tracks = <Track>[];
+  
+  // Get songs from discovered artists
+  final discoveredArtists = tasteService.getTopDiscoveredArtists(limit: 3);
+  for (final artist in discoveredArtists) {
+    final artistTracks = await _searchWithSource(ref, '$artist songs', limit: 3);
+    tracks.addAll(artistTracks);
+  }
+  
+  // Get songs from discovered languages
+  final discoveredLangs = tasteService.getDiscoveredLanguages(limit: 2);
+  for (final lang in discoveredLangs) {
+    final langTracks = await _searchWithSource(ref, '$lang songs hits', limit: 2);
+    tracks.addAll(langTracks);
+  }
+  
+  // Get songs from discovered genres
+  final topGenres = tasteService.getTopGenres(limit: 2);
+  for (final genre in topGenres) {
+    final genreTracks = await _searchWithSource(ref, '$genre music', limit: 2);
+    tracks.addAll(genreTracks);
+  }
+  
+  // Remove duplicates and shuffle
+  final uniqueTracks = <String, Track>{};
+  for (final track in tracks) {
+    uniqueTracks[track.id] = track;
+  }
+  final result = uniqueTracks.values.toList()..shuffle();
+  return result.take(10).toList();
 });

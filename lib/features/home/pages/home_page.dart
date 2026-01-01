@@ -51,6 +51,7 @@ class HomePage extends ConsumerWidget {
           ref.invalidate(bollywoodHitsProvider);
           ref.invalidate(forYouProvider);
           ref.invalidate(moreFromArtistsProvider);
+          ref.invalidate(discoveredForYouProvider);
           ref.read(quickPicksProvider.notifier).refresh();
         },
         child: CustomScrollView(
@@ -265,6 +266,11 @@ class HomePage extends ConsumerWidget {
               const SliverGap(24),
             ],
             
+            // Discovered For You Section (based on listening behavior)
+            SliverToBoxAdapter(
+              child: _buildDiscoveredSection(context, ref),
+            ),
+            
             // Trending Section (personalized by language)
             SliverToBoxAdapter(
               child: _buildSection(
@@ -474,6 +480,51 @@ class HomePage extends ConsumerWidget {
           const Gap(24),
         ],
       ),
+      error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+  
+  /// Build discovered for you section - only shows if user has listening history
+  Widget _buildDiscoveredSection(BuildContext context, WidgetRef ref) {
+    final discoveredTracks = ref.watch(discoveredForYouProvider);
+    
+    return discoveredTracks.when(
+      data: (tracks) {
+        // Only show if we have discovered tracks
+        if (tracks.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SectionHeader(
+              title: 'Discovered For You',
+              actionText: 'See all',
+            ),
+            SizedBox(
+              height: 200,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: tracks.length,
+                itemBuilder: (context, index) {
+                  final track = tracks[index];
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: TrackCard(
+                      track: track,
+                      onTap: () {
+                        final audioService = ref.read(audioPlayerServiceProvider);
+                        audioService.playAll(tracks, startIndex: index);
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+            const Gap(24),
+          ],
+        );
+      },
+      loading: () => const SizedBox.shrink(), // Don't show loading for discovered
       error: (_, __) => const SizedBox.shrink(),
     );
   }

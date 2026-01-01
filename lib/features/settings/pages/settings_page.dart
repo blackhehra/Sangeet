@@ -1,9 +1,14 @@
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:sangeet/services/settings_service.dart';
 import 'package:sangeet/services/user_preferences_service.dart';
+import 'package:sangeet/services/keyboard_shortcuts_service.dart';
 import 'package:sangeet/features/settings/pages/about_page.dart';
+import 'package:sangeet/features/stats/pages/listening_stats_page.dart';
+import 'package:sangeet/features/radio/pages/radio_page.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -64,6 +69,56 @@ class SettingsPage extends ConsumerWidget {
             isSelected: settings.musicSource == source,
             onTap: () => settingsService.setMusicSource(source),
           )),
+          
+          const Divider(height: 32),
+          
+          // Features Section
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text(
+              'Features',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          
+          ListTile(
+            leading: const Icon(Iconsax.chart_2),
+            title: const Text('Listening Stats'),
+            subtitle: const Text('View your listening history & analytics'),
+            trailing: const Icon(Iconsax.arrow_right_3, size: 18),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ListeningStatsPage()),
+              );
+            },
+          ),
+          
+          ListTile(
+            leading: const Icon(Iconsax.radio),
+            title: const Text('Radio & Moods'),
+            subtitle: const Text('Endless radio and mood-based playlists'),
+            trailing: const Icon(Iconsax.arrow_right_3, size: 18),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const RadioPage()),
+              );
+            },
+          ),
+          
+          // Keyboard Shortcuts (Desktop only)
+          if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux))
+            ListTile(
+              leading: const Icon(Iconsax.keyboard),
+              title: const Text('Keyboard Shortcuts'),
+              subtitle: const Text('View available shortcuts'),
+              trailing: const Icon(Iconsax.arrow_right_3, size: 18),
+              onTap: () => _showKeyboardShortcutsDialog(context),
+            ),
           
           const Divider(height: 32),
           
@@ -214,4 +269,57 @@ class _SourceTile extends StatelessWidget {
       onTap: onTap,
     );
   }
+}
+
+void _showKeyboardShortcutsDialog(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Iconsax.keyboard),
+          SizedBox(width: 12),
+          Text('Keyboard Shortcuts'),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: KeyboardShortcutsService.shortcutsMap.entries.map((entry) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      entry.key,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(entry.value),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
 }

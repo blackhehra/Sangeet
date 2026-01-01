@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sangeet/models/track.dart';
 import 'package:sangeet/models/related_page.dart';
 import 'package:sangeet/models/play_event.dart';
@@ -6,6 +8,8 @@ import 'package:sangeet/services/play_history_service.dart';
 import 'package:sangeet/services/innertube/innertube_service.dart';
 import 'package:sangeet/services/ytmusic/yt_music_service.dart';
 import 'package:sangeet/services/followed_artists_service.dart';
+import 'package:sangeet/services/user_preferences_service.dart';
+import 'package:sangeet/services/user_taste_service.dart';
 
 /// Quick picks source for personalized recommendations
 enum QuickPicksSource {
@@ -92,12 +96,20 @@ class QuickPicksNotifier extends StateNotifier<QuickPicksState> {
       }
 
       if (seedSong == null) {
-        // No history yet - use a default popular song ID
-        print('QuickPicks: No history, using default seed');
-        final relatedPage = await _innertubeService.getRelatedPage('J7p4bzqLvCw');
-        // Also fetch songs via search API for duration
+        // No history yet - use user's selected language preferences for recommendations
+        print('QuickPicks: No history, using language preferences');
         await _ytMusicService.init();
-        final searchSongs = await _ytMusicService.searchSongs('popular songs', limit: 10);
+        
+        final List<Track> searchSongs = await _fetchLanguageBasedSongs();
+        
+        // If no language preferences, fall back to popular songs
+        if (searchSongs.isEmpty) {
+          final fallbackSongs = await _ytMusicService.searchSongs('popular songs 2024', limit: 15);
+          searchSongs.addAll(fallbackSongs);
+        }
+        
+        final relatedPage = await _innertubeService.getRelatedPage('J7p4bzqLvCw');
+        
         state = state.copyWith(
           relatedPage: relatedPage,
           searchSongs: searchSongs,
@@ -317,6 +329,137 @@ class QuickPicksNotifier extends StateNotifier<QuickPicksState> {
       return allSongs;
     } catch (e) {
       print('QuickPicks: Error fetching followed artist songs: $e');
+      return [];
+    }
+  }
+
+  /// Fetch songs based on user's selected language preferences and discovered taste
+  /// Prioritizes selected language (~80%) with small influence from discovered taste (~20%)
+  Future<List<Track>> _fetchLanguageBasedSongs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final languagesJson = prefs.getStringList('selected_languages') ?? [];
+      final artistsJson = prefs.getString('selected_artists');
+      
+      // Initialize taste service
+      final tasteService = UserTasteService.instance;
+      await tasteService.init();
+      
+      final List<Track> primarySongs = [];   // Selected language songs (80%)
+      final List<Track> secondarySongs = []; // Discovered taste songs (20%)
+      
+      // ============ PRIMARY: Selected Language Songs (80%) ============
+      
+      // First priority: Songs from selected artists
+      if (artistsJson != null && artistsJson.isNotEmpty) {
+        try {
+          final List<dynamic> decoded = jsonDecode(artistsJson);
+          for (final artistData in decoded.take(5)) {
+            final artistName = artistData['name'] as String?;
+            if (artistName != null && artistName.isNotEmpty) {
+              print('QuickPicks: Fetching songs for preferred artist: $artistName');
+              final songs = await _ytMusicService.searchSongs('$artistName latest songs', limit: 4);
+              primarySongs.addAll(songs);
+            }
+          }
+        } catch (e) {
+          print('QuickPicks: Error parsing selected artists: $e');
+        }
+      }
+      
+      // Second priority: Songs from selected languages
+      for (final langCode in languagesJson.take(3)) {
+        final language = MusicLanguage.values.firstWhere(
+          (l) => l.code == langCode,
+          orElse: () => MusicLanguage.hindi,
+        );
+        
+        print('QuickPicks: Fetching songs for language: ${language.displayName}');
+        
+        // Search for popular songs in this language
+        final langSongs = await _ytMusicService.searchSongs(
+          '${language.displayName} songs 2024 hits', 
+          limit: 6
+        );
+        primarySongs.addAll(langSongs);
+        
+        // Also get songs from top artists of this language
+        for (final artist in language.topArtists.take(2)) {
+          final artistSongs = await _ytMusicService.searchSongs('$artist songs', limit: 3);
+          primarySongs.addAll(artistSongs);
+        }
+      }
+      
+      // ============ SECONDARY: Discovered Taste Songs (20%) ============
+      
+      // Get influence score - how much discovered taste should affect recommendations
+      final influenceScore = tasteService.getTasteInfluenceScore();
+      
+      if (influenceScore > 0) {
+        // Get top discovered artists (from listening behavior)
+        final discoveredArtists = tasteService.getTopDiscoveredArtists(limit: 3);
+        for (final artist in discoveredArtists) {
+          print('QuickPicks: Adding discovered artist: $artist');
+          final songs = await _ytMusicService.searchSongs('$artist songs', limit: 2);
+          secondarySongs.addAll(songs);
+        }
+        
+        // Get discovered languages (languages user shows interest in)
+        final discoveredLangs = tasteService.getDiscoveredLanguages(limit: 2);
+        for (final lang in discoveredLangs) {
+          // Skip if already in selected languages
+          if (!languagesJson.any((l) => l.toLowerCase() == lang.toLowerCase())) {
+            print('QuickPicks: Adding discovered language: $lang');
+            final songs = await _ytMusicService.searchSongs('$lang songs hits', limit: 2);
+            secondarySongs.addAll(songs);
+          }
+        }
+        
+        // Get top genres
+        final topGenres = tasteService.getTopGenres(limit: 2);
+        for (final genre in topGenres) {
+          print('QuickPicks: Adding discovered genre: $genre');
+          final songs = await _ytMusicService.searchSongs('$genre music', limit: 2);
+          secondarySongs.addAll(songs);
+        }
+      }
+      
+      // ============ BLEND RESULTS ============
+      
+      // Calculate how many songs from each category
+      final totalTarget = 20;
+      final primaryCount = (totalTarget * 0.80).round();
+      final secondaryCount = totalTarget - primaryCount;
+      
+      // Remove duplicates from each list
+      final uniquePrimary = <String, Track>{};
+      for (final song in primarySongs) {
+        uniquePrimary[song.id] = song;
+      }
+      
+      final uniqueSecondary = <String, Track>{};
+      for (final song in secondarySongs) {
+        // Don't add if already in primary
+        if (!uniquePrimary.containsKey(song.id)) {
+          uniqueSecondary[song.id] = song;
+        }
+      }
+      
+      // Shuffle each list
+      final primaryList = uniquePrimary.values.toList()..shuffle();
+      final secondaryList = uniqueSecondary.values.toList()..shuffle();
+      
+      // Combine with proper ratio
+      final result = <Track>[];
+      result.addAll(primaryList.take(primaryCount));
+      result.addAll(secondaryList.take(secondaryCount));
+      result.shuffle(); // Final shuffle for natural mix
+      
+      print('QuickPicks: Found ${result.length} songs '
+          '(${primaryList.length} primary, ${secondaryList.length} secondary)');
+      return result.take(totalTarget).toList();
+    } catch (e) {
+      print('QuickPicks: Error fetching language-based songs: $e');
       return [];
     }
   }

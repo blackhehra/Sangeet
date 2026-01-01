@@ -13,7 +13,6 @@ import 'package:sangeet/features/splash/pages/splash_video_page.dart';
 import 'package:sangeet/services/user_preferences_service.dart';
 import 'package:sangeet/services/audio_player_service.dart';
 import 'package:sangeet/services/playback_state_service.dart';
-import 'package:sangeet/services/streaming_server.dart';
 import 'package:sangeet/main.dart' show rootNavigatorKey;
 import 'package:iconsax/iconsax.dart';
 
@@ -94,9 +93,6 @@ class _MainShellState extends ConsumerState<MainShell> with WidgetsBindingObserv
       );
       print('App: Saved playback state on background');
     }
-    
-    // Save stream URL cache for iOS (important for app restart)
-    await StreamingServer().saveStreamCache();
   }
 
   // Handle back button press - pop within tab first, then switch tabs

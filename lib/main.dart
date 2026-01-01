@@ -111,6 +111,13 @@ void main(List<String> args) async {
       print('TrackMatcherService: Cache init failed: $e');
     });
     
+    // Initialize stream URL cache (for instant playback of recently played songs)
+    StreamingServer().initStreamCache().then((_) {
+      print('StreamingServer: Stream cache initialized');
+    }).catchError((e) {
+      print('StreamingServer: Stream cache init failed: $e');
+    });
+    
     // Initialize playback state service and restore last played track
     PlaybackStateService.instance.init().then((_) async {
       print('PlaybackStateService: Initialized');

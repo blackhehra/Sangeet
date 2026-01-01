@@ -17,7 +17,7 @@ class MiniPlayer extends ConsumerWidget {
     final hasDevice = connectedDeviceAsync.valueOrNull != null;
     
     return IconButton(
-      onPressed: () => _showDevicePicker(context, ref),
+      onPressed: () => _showDevicePicker(context),
       icon: Icon(
         hasDevice ? Iconsax.bluetooth5 : Iconsax.monitor,
         size: 20,
@@ -27,7 +27,7 @@ class MiniPlayer extends ConsumerWidget {
     );
   }
 
-  void _showDevicePicker(BuildContext context, WidgetRef ref) {
+  void _showDevicePicker(BuildContext context) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -59,7 +59,7 @@ class MiniPlayer extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context, ref) {
     final currentTrack = ref.watch(currentTrackProvider);
     final isPlaying = ref.watch(isPlayingProvider);
     final position = ref.watch(positionProvider);

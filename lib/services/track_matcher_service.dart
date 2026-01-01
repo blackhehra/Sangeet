@@ -152,6 +152,12 @@ class TrackMatcherService {
   // Set of Spotify track IDs currently being matched (to avoid duplicate matching)
   final Set<String> _matchingInProgress = {};
   
+  // Set of Spotify track IDs that failed matching (for retry with delay)
+  final Map<String, DateTime> _failedMatches = {};
+  
+  // Retry delay for failed matches (5 seconds as requested)
+  static const Duration _failedMatchRetryDelay = Duration(seconds: 5);
+  
   /// Get current playlist session ID
   int get playlistSessionId => _playlistSessionId;
   
@@ -208,15 +214,15 @@ class TrackMatcherService {
       return _cache[spotifyTrack.id]!;
     }
     
-    // Pause background matching
+    // Pause background matching immediately
     _pauseBackground();
     
     try {
-      // Wait if this track is already being matched by background
+      // Wait if this track is already being matched by background (max 3 seconds)
       if (_matchingInProgress.contains(spotifyTrack.id)) {
         print('TrackMatcher: Track "${spotifyTrack.name}" already being matched, waiting...');
-        // Poll until it's in cache or timeout
-        for (int i = 0; i < 100; i++) { // 10 second timeout
+        // Poll until it's in cache or timeout (reduced to 3 seconds for faster response)
+        for (int i = 0; i < 30; i++) {
           await Future.delayed(const Duration(milliseconds: 100));
           if (_cache.containsKey(spotifyTrack.id)) {
             print('TrackMatcher: Track "${spotifyTrack.name}" matched by background!');
@@ -227,6 +233,9 @@ class TrackMatcherService {
           }
         }
       }
+      
+      // Check if this track recently failed - if so, clear the failure to retry immediately for priority
+      _failedMatches.remove(spotifyTrack.id);
       
       // Match the track with priority
       print('TrackMatcher: Priority matching "${spotifyTrack.name}"');
@@ -243,6 +252,7 @@ class TrackMatcherService {
   Future<void> _runBackgroundMatching(List<plugin.SpotifyTrack> tracks, int sessionId) async {
     const int parallelCount = 2; // Match 2 tracks at a time (3 still causes rate limiting)
     int matchedCount = 0;
+    int skippedCount = 0;
     
     for (int i = 0; i < tracks.length; i += parallelCount) {
       // Check if session is still valid
@@ -251,9 +261,9 @@ class TrackMatcherService {
         return;
       }
       
-      // Wait while paused (user clicked a song)
+      // Wait while paused (user clicked a song) - check frequently for fast resume
       while (_backgroundPaused && sessionId == _playlistSessionId) {
-        await Future.delayed(const Duration(milliseconds: 50));
+        await Future.delayed(const Duration(milliseconds: 30));
       }
       
       // Check session again after pause
@@ -266,10 +276,23 @@ class TrackMatcherService {
       final endIndex = (i + parallelCount).clamp(0, tracks.length);
       final batch = tracks.sublist(i, endIndex);
       
-      // Filter out already cached or in-progress tracks
-      final toMatch = batch.where((t) => 
-        !_cache.containsKey(t.id) && !_matchingInProgress.contains(t.id)
-      ).toList();
+      // Filter out already cached, in-progress, or recently failed tracks
+      final now = DateTime.now();
+      final toMatch = batch.where((t) {
+        // Skip if already cached
+        if (_cache.containsKey(t.id)) {
+          skippedCount++;
+          return false;
+        }
+        // Skip if currently being matched
+        if (_matchingInProgress.contains(t.id)) return false;
+        // Skip if recently failed (wait for retry delay)
+        final failedAt = _failedMatches[t.id];
+        if (failedAt != null && now.difference(failedAt) < _failedMatchRetryDelay) {
+          return false;
+        }
+        return true;
+      }).toList();
       
       if (toMatch.isEmpty) continue;
       
@@ -283,8 +306,12 @@ class TrackMatcherService {
         try {
           await matchSpotifyPluginTrack(spotifyTrack);
           matchedCount++;
+          // Clear from failed list on success
+          _failedMatches.remove(spotifyTrack.id);
         } catch (e) {
           print('TrackMatcher: Background error for "${spotifyTrack.name}": $e');
+          // Mark as failed with timestamp for retry after delay
+          _failedMatches[spotifyTrack.id] = DateTime.now();
         }
       });
       
@@ -296,16 +323,32 @@ class TrackMatcherService {
       }
       
       // Log progress periodically
-      if (matchedCount % 10 == 0 || matchedCount == toMatch.length) {
-        print('TrackMatcher: Background progress: $matchedCount/${tracks.length} cached');
+      if (matchedCount % 10 == 0 || i + parallelCount >= tracks.length) {
+        final total = tracks.length;
+        final cached = _cache.length;
+        print('TrackMatcher: Background progress: $matchedCount new, $skippedCount already cached, $cached total cached / $total tracks');
       }
       
-      // Delay between batches to avoid YouTube rate limiting
-      await Future.delayed(const Duration(milliseconds: 500));
+      // Delay between batches to avoid YouTube rate limiting (reduced for faster matching)
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
+    
+    // Retry failed matches after the initial pass
+    if (sessionId == _playlistSessionId && _failedMatches.isNotEmpty) {
+      print('TrackMatcher: Retrying ${_failedMatches.length} failed matches after delay...');
+      await Future.delayed(_failedMatchRetryDelay);
+      
+      // Only retry if session is still valid
+      if (sessionId == _playlistSessionId) {
+        final failedTracks = tracks.where((t) => _failedMatches.containsKey(t.id)).toList();
+        if (failedTracks.isNotEmpty) {
+          await _runBackgroundMatching(failedTracks, sessionId);
+        }
+      }
     }
     
     if (sessionId == _playlistSessionId) {
-      print('TrackMatcher: Background pre-matching complete for session $sessionId ($matchedCount tracks cached)');
+      print('TrackMatcher: Background pre-matching complete for session $sessionId ($matchedCount tracks matched)');
     }
   }
   

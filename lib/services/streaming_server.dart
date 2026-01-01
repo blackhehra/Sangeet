@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart' as dio_lib;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shelf/shelf.dart' as shelf;
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_router/shelf_router.dart';
@@ -34,6 +36,22 @@ class _CachedStream {
   });
   
   bool get isExpired => DateTime.now().isAfter(expiresAt);
+  
+  /// Convert to JSON for persistence
+  Map<String, dynamic> toJson() => {
+    'url': url,
+    'userAgent': userAgent,
+    'contentLength': contentLength,
+    'expiresAt': expiresAt.millisecondsSinceEpoch,
+  };
+  
+  /// Create from JSON
+  factory _CachedStream.fromJson(Map<String, dynamic> json) => _CachedStream(
+    url: json['url'] as String,
+    userAgent: json['userAgent'] as String,
+    contentLength: json['contentLength'] as int?,
+    expiresAt: DateTime.fromMillisecondsSinceEpoch(json['expiresAt'] as int),
+  );
 }
 
 /// Result from a stream resolution attempt
@@ -240,8 +258,10 @@ class StreamingServer {
   final YoutubeExplode _yt = YoutubeExplode();
   final InnertubeService _innertube = InnertubeService();
   
-  // URL cache for pre-fetched stream URLs - 24 hour expiry
+  // URL cache for pre-fetched stream URLs - persisted to disk
   final Map<String, _CachedStream> _streamCache = {};
+  bool _streamCacheInitialized = false;
+  static const String _streamCacheKey = 'stream_url_cache';
   
   // Audio disk cache with LRU eviction
   final _AudioDiskCache _audioCache = _AudioDiskCache();
@@ -265,6 +285,59 @@ class StreamingServer {
   /// Set audio cache max size
   void setAudioCacheMaxSize(int bytes) => _audioCache.setMaxSize(bytes);
   
+  /// Initialize stream URL cache from persistent storage
+  Future<void> initStreamCache() async {
+    if (_streamCacheInitialized) return;
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonStr = prefs.getString(_streamCacheKey);
+      if (jsonStr != null) {
+        final Map<String, dynamic> data = jsonDecode(jsonStr);
+        int loadedCount = 0;
+        int expiredCount = 0;
+        
+        for (final entry in data.entries) {
+          try {
+            final cached = _CachedStream.fromJson(entry.value as Map<String, dynamic>);
+            if (!cached.isExpired) {
+              _streamCache[entry.key] = cached;
+              loadedCount++;
+            } else {
+              expiredCount++;
+            }
+          } catch (e) {
+            // Skip invalid entries
+          }
+        }
+        print('StreamingServer: Loaded $loadedCount cached stream URLs ($expiredCount expired)');
+      }
+    } catch (e) {
+      print('StreamingServer: Error loading stream cache: $e');
+    }
+    
+    _streamCacheInitialized = true;
+  }
+  
+  /// Save stream URL cache to persistent storage
+  Future<void> _saveStreamCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final Map<String, dynamic> data = {};
+      
+      // Only save non-expired entries
+      for (final entry in _streamCache.entries) {
+        if (!entry.value.isExpired) {
+          data[entry.key] = entry.value.toJson();
+        }
+      }
+      
+      await prefs.setString(_streamCacheKey, jsonEncode(data));
+    } catch (e) {
+      print('StreamingServer: Error saving stream cache: $e');
+    }
+  }
+  
   /// Set the audio quality for stream selection
   void setAudioQuality(AudioQuality quality) {
     if (_audioQuality != quality) {
@@ -282,6 +355,7 @@ class StreamingServer {
   
   /// Pre-fetch and validate stream URL before playback
   /// Uses PARALLEL execution - first successful result wins, others are ignored
+  /// Has a global timeout to prevent hanging indefinitely
   Future<bool> prefetchStream(String videoId) async {
     print('StreamingServer: Pre-fetching stream for $videoId (PARALLEL)');
     final startTime = DateTime.now();
@@ -292,6 +366,9 @@ class StreamingServer {
       print('StreamingServer: Using cached stream URL');
       return true;
     }
+    
+    // Global timeout for the entire prefetch operation (10 seconds max)
+    const globalTimeout = Duration(seconds: 10);
     
     // Flag to track if we already found a result
     bool resultFound = false;
@@ -336,19 +413,34 @@ class StreamingServer {
       });
     }
     
-    // Wait for first success or all failures
-    final result = await completer.future;
+    // Wait for first success, all failures, OR global timeout
+    _StreamResult? result;
+    try {
+      result = await completer.future.timeout(globalTimeout, onTimeout: () {
+        print('StreamingServer: Global timeout reached after ${globalTimeout.inSeconds}s');
+        resultFound = true; // Signal to cancel other attempts
+        return null;
+      });
+    } catch (e) {
+      print('StreamingServer: Error waiting for prefetch: $e');
+      return false;
+    }
+    
     final elapsed = DateTime.now().difference(startTime).inMilliseconds;
     
     if (result != null) {
-      // Cache the successful result
+      // Cache the successful result - YouTube URLs typically expire in 6 hours
       _streamCache[videoId] = _CachedStream(
         url: result.url,
         userAgent: result.userAgent,
         contentLength: result.contentLength,
-        expiresAt: DateTime.now().add(const Duration(hours: 24)),
+        expiresAt: DateTime.now().add(const Duration(hours: 5)), // 5 hours to be safe
       );
       print('StreamingServer: Stream ready via ${result.source} in ${elapsed}ms');
+      
+      // Save to persistent storage for app restart
+      _saveStreamCache();
+      
       return true;
     }
     

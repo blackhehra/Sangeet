@@ -191,6 +191,21 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
     // Check if this is the same playlist that's currently playing
     final isSamePlaylist = audioService.currentPlaylistId == widget.playlistId;
     
+    // FAST PATH: Check if track is already cached AND in queue - instant playback!
+    // This avoids calling matchWithPriority which can be slow if not cached
+    if (isSamePlaylist) {
+      final cachedTrack = trackMatcher.getMatchedTrack(track.id);
+      if (cachedTrack != null) {
+        final queueIndex = audioService.findTrackInQueue(cachedTrack.id);
+        if (queueIndex >= 0) {
+          // Track is cached AND in queue - play instantly without any matching!
+          print('SpotifyPlaylist: FAST PATH - Track "${track.name}" cached & in queue at $queueIndex');
+          await audioService.playAtIndex(queueIndex);
+          return;
+        }
+      }
+    }
+    
     // Create a pending track with Spotify metadata for IMMEDIATE UI feedback
     final pendingTrack = Track(
       id: track.id,

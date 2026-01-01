@@ -443,9 +443,51 @@ class AudioPlayerService {
     _queueController.add(_queue);
   }
 
+  // Timer to detect stuck buffering state and auto-retry
+  Timer? _bufferingTimeoutTimer;
+  int _autoRetryCount = 0;
+  static const int _maxAutoRetries = 3;
+  
+  /// Cancel any pending buffering timeout
+  void _cancelBufferingTimeout() {
+    _bufferingTimeoutTimer?.cancel();
+    _bufferingTimeoutTimer = null;
+  }
+  
+  /// Reset auto-retry counter (call when track changes or playback succeeds)
+  void _resetAutoRetry() {
+    _autoRetryCount = 0;
+  }
+  
+  /// Start a buffering timeout - auto-retry if buffering doesn't complete in time
+  void _startBufferingTimeout({Duration timeout = const Duration(seconds: 12)}) {
+    _cancelBufferingTimeout();
+    _bufferingTimeoutTimer = Timer(timeout, () {
+      print('AudioPlayer: Buffering timeout detected (auto-retry $_autoRetryCount/$_maxAutoRetries)');
+      
+      // Auto-retry if we haven't exceeded max retries
+      if (_autoRetryCount < _maxAutoRetries && _currentIndex >= 0 && _currentIndex < _queue.length) {
+        _autoRetryCount++;
+        print('AudioPlayer: Auto-retrying track (attempt $_autoRetryCount)');
+        _playCurrentTrack(retryCount: 0); // Reset retry count for fresh attempt
+      } else {
+        // Max retries exceeded - stop buffering and try next track
+        print('AudioPlayer: Max auto-retries exceeded, skipping to next track');
+        _bufferingController.add(false);
+        _autoRetryCount = 0;
+        if (_queue.length > 1 && _currentIndex < _queue.length - 1) {
+          skipToNext();
+        }
+      }
+    });
+  }
+  
   /// Play current track - with disk caching for instant replay
   Future<void> _playCurrentTrack({int retryCount = 0}) async {
-    if (_currentIndex < 0 || _currentIndex >= _queue.length) return;
+    if (_currentIndex < 0 || _currentIndex >= _queue.length) {
+      _bufferingController.add(false);
+      return;
+    }
 
     var track = _queue[_currentIndex];
     
@@ -472,6 +514,9 @@ class AudioPlayerService {
     _currentTrackController.add(track);
     _bufferingController.add(true);
     
+    // Start buffering timeout to detect stuck states
+    _startBufferingTimeout();
+    
     // Initialize audio handler if not already done
     if (_audioHandler == null) {
       print('AudioPlayer: Audio handler not initialized, initializing now...');
@@ -484,8 +529,8 @@ class AudioPlayerService {
     _audioHandler?.updateBuffering(true);
     print('AudioPlayer: Media item updated for lock screen');
     
-    // Set a timeout to prevent infinite loading
-    const timeoutDuration = Duration(seconds: 30);
+    // Set a timeout to prevent infinite loading (reduced from 30s to 15s for faster recovery)
+    const timeoutDuration = Duration(seconds: 15);
 
     // Record play start for history
     _recordPlayTime(); // Record previous track's play time first
@@ -501,12 +546,13 @@ class AudioPlayerService {
       ]);
     } on TimeoutException catch (e) {
       print('AudioPlayer: Timeout loading track: $e');
+      _cancelBufferingTimeout();
       _bufferingController.add(false);
       
-      // Retry once before skipping
+      // Retry once before skipping (with shorter delay)
       if (retryCount < 1) {
         print('AudioPlayer: Retrying track (attempt ${retryCount + 1})');
-        await Future.delayed(const Duration(seconds: 1));
+        await Future.delayed(const Duration(milliseconds: 500));
         return _playCurrentTrack(retryCount: retryCount + 1);
       }
       
@@ -518,6 +564,7 @@ class AudioPlayerService {
     } catch (e, stackTrace) {
       print('AudioPlayer: Error playing track: $e');
       print('AudioPlayer: Stack trace: $stackTrace');
+      _cancelBufferingTimeout();
       _bufferingController.add(false);
       
       // Check if this is an unplayable video error (age-restricted, etc.)
@@ -535,10 +582,10 @@ class AudioPlayerService {
         await TrackMatcherService().clearCacheForYouTubeId(track.id);
       }
       
-      // Retry once on error
+      // Retry once on error (with shorter delay)
       if (retryCount < 1) {
         print('AudioPlayer: Retrying track after error (attempt ${retryCount + 1})');
-        await Future.delayed(const Duration(seconds: 1));
+        await Future.delayed(const Duration(milliseconds: 500));
         return _playCurrentTrack(retryCount: retryCount + 1);
       }
       
@@ -569,6 +616,9 @@ class AudioPlayerService {
         await _player.play();
         print('AudioPlayer: Playback started from cache');
         
+        // Cancel buffering timeout and reset auto-retry - playback started successfully
+        _cancelBufferingTimeout();
+        _resetAutoRetry();
         _prefetchNextTrack();
         return;
       }
@@ -590,6 +640,10 @@ class AudioPlayerService {
       print('AudioPlayer: Player opened, starting playback...');
       await _player.play();
       print('AudioPlayer: Playback started');
+      
+      // Cancel buffering timeout and reset auto-retry - playback started successfully
+      _cancelBufferingTimeout();
+      _resetAutoRetry();
       
       // Prefetch next track in background for faster loading
       _prefetchNextTrack();
@@ -1003,6 +1057,7 @@ class AudioPlayerService {
   /// Dispose resources
   void dispose() {
     _stateSaveTimer?.cancel();
+    _cancelBufferingTimeout();
     _saveCurrentState(); // Save state before disposing
     _player.dispose();
     _currentTrackController.close();

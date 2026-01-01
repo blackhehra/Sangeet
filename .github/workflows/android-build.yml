@@ -15,6 +15,15 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
+    - name: Free up disk space
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/share/boost
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+        sudo apt-get clean
+        df -h
+      
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
@@ -33,11 +42,8 @@ jobs:
     - name: Install dependencies
       run: flutter pub get
       
-    - name: Build Android APK
+    - name: Build Android APK 
       run: flutter build apk --release
-      
-    - name: Build Android Apk Debug
-      run: flutter build apk --debug
       
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4

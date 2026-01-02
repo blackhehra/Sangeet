@@ -50,6 +50,9 @@ class BluetoothAudioService {
     if (_isInitialized) return;
     _isInitialized = true;
 
+    // Emit initial null value to prevent loading state
+    _connectedDeviceController.add(null);
+
     // Listen to Bluetooth adapter state changes
     _adapterStateSubscription = FlutterBluePlus.adapterState.listen((state) {
       if (state == BluetoothAdapterState.on) {
@@ -60,7 +63,7 @@ class BluetoothAudioService {
       }
     });
 
-    // Initial check
+    // Initial check - this will update the stream with actual device if found
     await _checkConnectedDevices();
   }
 
@@ -149,24 +152,33 @@ class BluetoothAudioService {
   /// Get system-level connected audio device via platform channel
   Future<AudioDevice?> _getSystemAudioDevice() async {
     try {
+      print('BluetoothAudioService: Calling platform channel...');
       const platform = MethodChannel('com.sangeet.audio/bluetooth');
-      final result = await platform.invokeMethod('getConnectedAudioDevice');
+      final result = await platform.invokeMethod('getConnectedAudioDevice')
+          .timeout(const Duration(seconds: 2));
+      
+      print('BluetoothAudioService: Platform channel result: $result');
       
       if (result != null && result is Map) {
         final name = result['name'] as String?;
         final type = result['type'] as String?;
         
+        print('BluetoothAudioService: Device name=$name, type=$type');
+        
         if (name != null && type == 'bluetooth') {
+          print('BluetoothAudioService: Found device via platform channel: $name');
           return AudioDevice(
             name: name,
             id: result['id'] as String? ?? 'system',
             type: AudioDeviceType.bluetooth,
           );
         }
+      } else {
+        print('BluetoothAudioService: Platform channel returned null or invalid data');
       }
     } catch (e) {
       // Platform channel not implemented or error - fallback to flutter_blue_plus
-      print('BluetoothAudioService: Platform channel not available: $e');
+      print('BluetoothAudioService: Platform channel error: $e');
     }
     return null;
   }

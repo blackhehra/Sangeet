@@ -14,11 +14,118 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:sangeet/services/settings_service.dart';
 import 'package:sangeet/services/innertube/innertube_service.dart';
 
-/// API clients to try for stream resolution
+/// Client contexts for stream resolution - tried sequentially until one works
+/// Priority order based on testing results:
+/// 1. ANDROID_VR - Most reliable, bypasses most restrictions
+/// 2. ANDROID - Good fallback
+/// 3. IOS - Alternative fallback
+/// 4. TV - Sometimes works for restricted content
+/// 5. WEB - Last resort (often requires signature cipher)
+enum _ClientContext {
+  androidVr,
+  android,
+  ios,
+  tv,
+  web,
+}
+
+/// Client configuration for each context
+class _ClientConfig {
+  final String clientName;
+  final String clientVersion;
+  final int clientId;
+  final String userAgent;
+  final String? platform;
+  final int? androidSdkVersion;
+  final String? osName;
+  final String? osVersion;
+  final String? deviceMake;
+  final String? deviceModel;
+  final String? referer;
+  final bool music;
+
+  const _ClientConfig({
+    required this.clientName,
+    required this.clientVersion,
+    required this.clientId,
+    required this.userAgent,
+    this.platform,
+    this.androidSdkVersion,
+    this.osName,
+    this.osVersion,
+    this.deviceMake,
+    this.deviceModel,
+    this.referer,
+    this.music = true,
+  });
+
+  Map<String, dynamic> toContext() => {
+    'client': {
+      'clientName': clientName,
+      'clientVersion': clientVersion,
+      'hl': 'en',
+      'gl': 'US',
+      if (platform != null) 'platform': platform,
+      if (androidSdkVersion != null) 'androidSdkVersion': androidSdkVersion,
+      if (osName != null) 'osName': osName,
+      if (osVersion != null) 'osVersion': osVersion,
+      if (deviceMake != null) 'deviceMake': deviceMake,
+      if (deviceModel != null) 'deviceModel': deviceModel,
+    },
+    'user': {'lockedSafetyMode': false},
+  };
+}
+
+/// Client configurations - matching successful implementations
+const _clientConfigs = <_ClientContext, _ClientConfig>{
+  _ClientContext.android: _ClientConfig(
+    clientName: 'ANDROID',
+    clientVersion: '20.10.38',
+    clientId: 3,
+    userAgent: 'com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip',
+    osName: 'Android',
+    osVersion: '11',
+    platform: 'MOBILE',
+    androidSdkVersion: 30,
+  ),
+  _ClientContext.ios: _ClientConfig(
+    clientName: 'IOS',
+    clientVersion: '20.10.4',
+    clientId: 5,
+    userAgent: 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+    deviceMake: 'Apple',
+    deviceModel: 'iPhone16,2',
+    osName: 'iPhone',
+    osVersion: '18.3.2.22D82',
+  ),
+  _ClientContext.tv: _ClientConfig(
+    clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
+    clientVersion: '2.0',
+    clientId: 85,
+    userAgent: 'Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15',
+    referer: 'https://www.youtube.com/',
+  ),
+  _ClientContext.androidVr: _ClientConfig(
+    clientName: 'ANDROID_VR',
+    clientVersion: '1.61.48',
+    clientId: 28,
+    userAgent: 'com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Oculus Quest 3; Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)',
+    music: false,
+  ),
+  _ClientContext.web: _ClientConfig(
+    clientName: 'WEB',
+    clientVersion: '2.20250312.04.00',
+    clientId: 1,
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0',
+  ),
+};
+
+/// Fallback: youtube_explode clients (used if all Innertube clients fail)
+/// ANDROID_VR is first since it's most reliable
 final _ytClients = [
-  YoutubeApiClient.ios,
-  YoutubeApiClient.android,
   YoutubeApiClient.androidVr,
+  YoutubeApiClient.android,
+  YoutubeApiClient.ios,
 ];
 
 /// Cached stream URL data
@@ -354,10 +461,10 @@ class StreamingServer {
   }
   
   /// Pre-fetch and validate stream URL before playback
-  /// Uses PARALLEL execution - first successful result wins, others are ignored
-  /// Has a global timeout to prevent hanging indefinitely
+  /// Uses youtube_explode directly with ANDROID_VR client (most reliable)
+  /// Innertube clients are skipped as they consistently fail with 403/bot detection
   Future<bool> prefetchStream(String videoId) async {
-    print('StreamingServer: Pre-fetching stream for $videoId (PARALLEL)');
+    print('StreamingServer: Pre-fetching stream for $videoId');
     final startTime = DateTime.now();
     
     // Check cache first
@@ -367,141 +474,183 @@ class StreamingServer {
       return true;
     }
     
-    // Global timeout for the entire prefetch operation (10 seconds max)
-    const globalTimeout = Duration(seconds: 10);
-    
-    // Flag to track if we already found a result
-    bool resultFound = false;
-    
-    // Run ALL attempts in PARALLEL - first success wins
-    final futures = <Future<_StreamResult?>>[];
-    
-    // Add Innertube attempts (fast)
-    futures.add(_tryInnertubeStream(videoId, () => resultFound));
-    
-    // Add youtube_explode attempts for each client (slower but reliable)
+    // Use youtube_explode directly - ANDROID_VR is most reliable
+    // Innertube clients consistently fail with 403 or bot detection
     for (final client in _ytClients) {
-      futures.add(_tryYoutubeExplodeStream(videoId, client, () => resultFound));
-    }
-    
-    print('StreamingServer: Starting ${futures.length} parallel attempts...');
-    
-    // Use Completer to get first successful result
-    final completer = Completer<_StreamResult?>();
-    int completedCount = 0;
-    int failedCount = 0;
-    
-    for (final future in futures) {
-      future.then((result) {
-        completedCount++;
-        if (result != null && !resultFound && !completer.isCompleted) {
-          resultFound = true;
-          completer.complete(result);
-        } else if (result == null) {
-          failedCount++;
-          // If all failed, complete with null
-          if (failedCount == futures.length && !completer.isCompleted) {
-            completer.complete(null);
-          }
-        }
-      }).catchError((e) {
-        completedCount++;
-        failedCount++;
-        if (failedCount == futures.length && !completer.isCompleted) {
-          completer.complete(null);
-        }
-      });
-    }
-    
-    // Wait for first success, all failures, OR global timeout
-    _StreamResult? result;
-    try {
-      result = await completer.future.timeout(globalTimeout, onTimeout: () {
-        print('StreamingServer: Global timeout reached after ${globalTimeout.inSeconds}s');
-        resultFound = true; // Signal to cancel other attempts
-        return null;
-      });
-    } catch (e) {
-      print('StreamingServer: Error waiting for prefetch: $e');
-      return false;
+      final result = await _tryYoutubeExplodeStream(videoId, client, () => false);
+      if (result != null) {
+        _streamCache[videoId] = _CachedStream(
+          url: result.url,
+          userAgent: result.userAgent,
+          contentLength: result.contentLength,
+          expiresAt: DateTime.now().add(const Duration(hours: 5)),
+        );
+        
+        final elapsed = DateTime.now().difference(startTime).inMilliseconds;
+        print('StreamingServer: Stream ready via ${result.source} in ${elapsed}ms');
+        _saveStreamCache();
+        return true;
+      }
     }
     
     final elapsed = DateTime.now().difference(startTime).inMilliseconds;
-    
-    if (result != null) {
-      // Cache the successful result - YouTube URLs typically expire in 6 hours
-      _streamCache[videoId] = _CachedStream(
-        url: result.url,
-        userAgent: result.userAgent,
-        contentLength: result.contentLength,
-        expiresAt: DateTime.now().add(const Duration(hours: 5)), // 5 hours to be safe
-      );
-      print('StreamingServer: Stream ready via ${result.source} in ${elapsed}ms');
-      
-      // Save to persistent storage for app restart
-      _saveStreamCache();
-      
-      return true;
-    }
-    
-    print('StreamingServer: All ${futures.length} attempts failed in ${elapsed}ms');
+    print('StreamingServer: All clients failed in ${elapsed}ms');
     return false;
   }
   
-  /// Try to get stream URL via Innertube API (fastest method)
-  Future<_StreamResult?> _tryInnertubeStream(String videoId, bool Function() isCancelled) async {
+  /// Try to get stream URL via Innertube API with a specific client context
+  Future<_StreamResult?> _tryInnertubeClient(String videoId, _ClientContext context) async {
+    final config = _clientConfigs[context]!;
+    
     try {
-      if (isCancelled()) return null;
+      print('StreamingServer: [${config.clientName}] Trying...');
       
-      print('StreamingServer: [Innertube] Starting...');
-      final playerResponse = await _innertube.getPlayer(videoId);
+      // Build request body
+      final body = {
+        'context': config.toContext(),
+        'videoId': videoId,
+        'contentCheckOk': true,
+        'racyCheckOk': true,
+      };
       
-      if (isCancelled()) return null;
+      // Determine endpoint based on client
+      final endpoint = config.music 
+          ? 'https://music.youtube.com/youtubei/v1/player'
+          : 'https://www.youtube.com/youtubei/v1/player';
       
-      if (playerResponse != null && playerResponse.isPlayable) {
-        final format = playerResponse.highestQualityAudioFormat;
-        if (format != null && format.url != null) {
-          print('StreamingServer: [Innertube] Found direct URL (${format.bitrate ~/ 1000}kbps)');
-          
-          if (isCancelled()) return null;
-          
-          // Validate URL with HEAD request
-          const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0';
-          final headResponse = await _dio.head(
-            format.url!,
-            options: dio_lib.Options(
-              headers: {'User-Agent': userAgent},
-              validateStatus: (status) => status != null && status < 500,
-              followRedirects: true,
-              receiveTimeout: const Duration(seconds: 5),
-            ),
-          );
-          
-          if (isCancelled()) return null;
-          
-          if (headResponse.statusCode == 403) {
-            print('StreamingServer: [Innertube] URL returned 403, skipping');
-            return null;
-          }
-          
-          if (headResponse.statusCode != null && headResponse.statusCode! < 400) {
-            print('StreamingServer: [Innertube] Valid stream');
-            return _StreamResult(
-              url: format.url!,
-              userAgent: userAgent,
-              contentLength: format.contentLength,
-              source: 'Innertube',
-            );
-          }
-          
-          print('StreamingServer: [Innertube] URL validation failed: ${headResponse.statusCode}');
+      final response = await _dio.post(
+        endpoint,
+        data: body,
+        options: dio_lib.Options(
+          headers: {
+            'User-Agent': config.userAgent,
+            'Content-Type': 'application/json',
+            'X-YouTube-Client-Name': config.clientId.toString(),
+            'X-YouTube-Client-Version': config.clientVersion,
+            if (config.referer != null) 'Referer': config.referer!,
+          },
+          validateStatus: (status) => status != null && status < 500,
+          receiveTimeout: const Duration(seconds: 8),
+          sendTimeout: const Duration(seconds: 5),
+        ),
+      );
+      
+      if (response.statusCode != 200) {
+        print('StreamingServer: [${config.clientName}] Request failed: ${response.statusCode}');
+        return null;
+      }
+      
+      final data = response.data as Map<String, dynamic>;
+      
+      // Check playability
+      final playabilityStatus = data['playabilityStatus'] as Map<String, dynamic>?;
+      if (playabilityStatus == null) {
+        print('StreamingServer: [${config.clientName}] No playability status');
+        return null;
+      }
+      
+      final status = playabilityStatus['status'] as String?;
+      if (status != 'OK') {
+        final reason = playabilityStatus['reason'] as String? ?? 'Unknown';
+        print('StreamingServer: [${config.clientName}] Not playable: $reason');
+        return null;
+      }
+      
+      // Get streaming data
+      final streamingData = data['streamingData'] as Map<String, dynamic>?;
+      if (streamingData == null) {
+        print('StreamingServer: [${config.clientName}] No streaming data');
+        return null;
+      }
+      
+      // Get adaptive formats
+      final adaptiveFormats = streamingData['adaptiveFormats'] as List<dynamic>?;
+      if (adaptiveFormats == null || adaptiveFormats.isEmpty) {
+        print('StreamingServer: [${config.clientName}] No adaptive formats');
+        return null;
+      }
+      
+      // Find best audio format
+      final audioFormats = adaptiveFormats
+          .where((f) => (f['mimeType'] as String?)?.startsWith('audio/') == true)
+          .toList();
+      
+      if (audioFormats.isEmpty) {
+        print('StreamingServer: [${config.clientName}] No audio formats');
+        return null;
+      }
+      
+      // Sort by bitrate (highest first)
+      audioFormats.sort((a, b) => 
+          ((b['bitrate'] as int?) ?? 0).compareTo((a['bitrate'] as int?) ?? 0));
+      
+      // Prefer Opus (itag 251) or AAC (itag 140)
+      Map<String, dynamic>? selectedFormat;
+      for (final format in audioFormats) {
+        final itag = format['itag'] as int?;
+        if (itag == 251 || itag == 140) {
+          selectedFormat = format as Map<String, dynamic>;
+          break;
         }
       }
+      selectedFormat ??= audioFormats.first as Map<String, dynamic>;
+      
+      // Get URL
+      String? streamUrl = selectedFormat['url'] as String?;
+      
+      // Handle signature cipher if URL is not directly available
+      if (streamUrl == null) {
+        final signatureCipher = selectedFormat['signatureCipher'] as String?;
+        if (signatureCipher != null) {
+          // Parse cipher - this is complex, skip for now
+          print('StreamingServer: [${config.clientName}] Signature cipher required, skipping');
+          return null;
+        }
+        print('StreamingServer: [${config.clientName}] No URL available');
+        return null;
+      }
+      
+      final bitrate = selectedFormat['bitrate'] as int? ?? 0;
+      final contentLength = int.tryParse(selectedFormat['contentLength']?.toString() ?? '');
+      
+      print('StreamingServer: [${config.clientName}] Found stream (${bitrate ~/ 1000}kbps)');
+      
+      // Validate URL with HEAD request
+      print('StreamingServer: [${config.clientName}] Validating URL...');
+      final headResponse = await _dio.head(
+        streamUrl,
+        options: dio_lib.Options(
+          headers: {'User-Agent': config.userAgent},
+          validateStatus: (status) => status != null && status < 500,
+          followRedirects: true,
+          receiveTimeout: const Duration(seconds: 5),
+        ),
+      );
+      
+      if (headResponse.statusCode == 403) {
+        print('StreamingServer: [${config.clientName}] URL returned 403, skipping');
+        return null;
+      }
+      
+      if (headResponse.statusCode != null && headResponse.statusCode! < 400) {
+        print('StreamingServer: [${config.clientName}] Valid stream!');
+        return _StreamResult(
+          url: streamUrl,
+          userAgent: config.userAgent,
+          contentLength: contentLength,
+          source: config.clientName,
+        );
+      }
+      
+      print('StreamingServer: [${config.clientName}] Validation failed: ${headResponse.statusCode}');
+      return null;
+      
     } catch (e) {
-      print('StreamingServer: [Innertube] Failed: $e');
+      print('StreamingServer: [${config.clientName}] Error: $e');
+      return null;
     }
-    return null;
   }
+  
   
   /// Try to get stream URL via youtube_explode (reliable fallback)
   Future<_StreamResult?> _tryYoutubeExplodeStream(

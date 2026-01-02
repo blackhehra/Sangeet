@@ -183,15 +183,7 @@ class _DevicePickerSheetState extends ConsumerState<DevicePickerSheet> {
                         }
                         return _buildNoDevicesMessage();
                       },
-                      loading: () => const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(20),
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: AppTheme.primaryColor,
-                          ),
-                        ),
-                      ),
+                      loading: () => _buildNoDevicesMessage(), // Show no devices instead of loading
                       error: (_, __) => _buildNoDevicesMessage(),
                     ),
                 ],

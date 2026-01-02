@@ -61,49 +61,108 @@ class MainActivity : FlutterActivity() {
     // Get connected Bluetooth audio device
     private fun getConnectedAudioDevice(): Map<String, String>? {
         try {
-            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            android.util.Log.d("BluetoothNative", "getConnectedAudioDevice called")
             
-            // Check if audio is routed to Bluetooth
-            if (audioManager.isBluetoothA2dpOn || audioManager.isBluetoothScoOn) {
-                val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
-                if (bluetoothAdapter != null && bluetoothAdapter.isEnabled) {
-                    // Get connected Bluetooth devices
-                    val connectedDevices = bluetoothAdapter.bondedDevices
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+            
+            if (bluetoothAdapter == null) {
+                android.util.Log.d("BluetoothNative", "BluetoothAdapter is null")
+                return null
+            }
+            
+            if (!bluetoothAdapter.isEnabled) {
+                android.util.Log.d("BluetoothNative", "Bluetooth is disabled")
+                return null
+            }
+            
+            // Get all bonded (paired) devices
+            val bondedDevices = bluetoothAdapter.bondedDevices
+            android.util.Log.d("BluetoothNative", "Found ${bondedDevices.size} bonded devices")
+            
+            // Check if audio is currently routed to Bluetooth
+            val isBluetoothA2dp = audioManager.isBluetoothA2dpOn
+            val isBluetoothSco = audioManager.isBluetoothScoOn
+            android.util.Log.d("BluetoothNative", "Audio routing - A2DP: $isBluetoothA2dp, SCO: $isBluetoothSco")
+            
+            val isBluetoothAudio = isBluetoothA2dp || isBluetoothSco
+            
+            if (bondedDevices.isEmpty()) {
+                android.util.Log.d("BluetoothNative", "No bonded devices found")
+                return null
+            }
+            
+            // Log all bonded devices
+            for (device in bondedDevices) {
+                val deviceClass = device.bluetoothClass?.majorDeviceClass
+                android.util.Log.d("BluetoothNative", "Device: ${device.name}, Class: $deviceClass, Address: ${device.address}")
+            }
+            
+            if (isBluetoothAudio) {
+                android.util.Log.d("BluetoothNative", "Audio is routed to Bluetooth, searching for audio device...")
+                // Audio is playing through Bluetooth, find the likely device
+                for (device in bondedDevices) {
+                    val deviceClass = device.bluetoothClass?.majorDeviceClass
+                    val deviceName = device.name ?: "Bluetooth Device"
                     
-                    // Find connected audio device
-                    for (device in connectedDevices) {
-                        // Check if device is connected (bonded and likely connected)
-                        if (device.bondState == BluetoothDevice.BOND_BONDED) {
-                            // Check device class for audio devices
-                            val deviceClass = device.bluetoothClass?.majorDeviceClass
-                            if (deviceClass == 1024 || // AUDIO_VIDEO
-                                device.name?.contains("buds", ignoreCase = true) == true ||
-                                device.name?.contains("headphone", ignoreCase = true) == true ||
-                                device.name?.contains("speaker", ignoreCase = true) == true) {
-                                
-                                return mapOf(
-                                    "name" to (device.name ?: "Bluetooth Device"),
-                                    "id" to device.address,
-                                    "type" to "bluetooth"
-                                )
-                            }
-                        }
-                    }
+                    // Check if it's an audio device by class or name
+                    val isAudioDevice = deviceClass == 1024 || // AUDIO_VIDEO class
+                        deviceName.contains("buds", ignoreCase = true) ||
+                        deviceName.contains("headphone", ignoreCase = true) ||
+                        deviceName.contains("headset", ignoreCase = true) ||
+                        deviceName.contains("speaker", ignoreCase = true) ||
+                        deviceName.contains("airpods", ignoreCase = true) ||
+                        deviceName.contains("earphone", ignoreCase = true)
                     
-                    // If audio is routed to BT but we can't find specific device,
-                    // return first bonded device
-                    if (connectedDevices.isNotEmpty()) {
-                        val device = connectedDevices.first()
+                    if (isAudioDevice) {
+                        android.util.Log.d("BluetoothNative", "Found audio device: $deviceName")
                         return mapOf(
-                            "name" to (device.name ?: "Bluetooth Device"),
+                            "name" to deviceName,
+                            "id" to device.address,
+                            "type" to "bluetooth"
+                        )
+                    }
+                }
+                
+                // If we can't identify specific audio device but audio is on BT,
+                // return the first bonded device
+                val firstDevice = bondedDevices.firstOrNull()
+                if (firstDevice != null) {
+                    android.util.Log.d("BluetoothNative", "Returning first bonded device: ${firstDevice.name}")
+                    return mapOf(
+                        "name" to (firstDevice.name ?: "Bluetooth Device"),
+                        "id" to firstDevice.address,
+                        "type" to "bluetooth"
+                    )
+                }
+            } else {
+                android.util.Log.d("BluetoothNative", "Audio not on Bluetooth, checking for paired audio devices...")
+                // Audio not currently on Bluetooth, but check for bonded audio devices
+                for (device in bondedDevices) {
+                    val deviceClass = device.bluetoothClass?.majorDeviceClass
+                    val deviceName = device.name ?: "Bluetooth Device"
+                    
+                    // Only return if it's clearly an audio device
+                    val isAudioDevice = deviceClass == 1024 ||
+                        deviceName.contains("buds", ignoreCase = true) ||
+                        deviceName.contains("headphone", ignoreCase = true) ||
+                        deviceName.contains("headset", ignoreCase = true) ||
+                        deviceName.contains("airpods", ignoreCase = true)
+                    
+                    if (isAudioDevice) {
+                        android.util.Log.d("BluetoothNative", "Found paired audio device: $deviceName")
+                        return mapOf(
+                            "name" to deviceName,
                             "id" to device.address,
                             "type" to "bluetooth"
                         )
                     }
                 }
             }
+            
+            android.util.Log.d("BluetoothNative", "No audio device found")
         } catch (e: Exception) {
-            // Permission denied or other error
+            android.util.Log.e("BluetoothNative", "Error: ${e.message}", e)
             return null
         }
         return null

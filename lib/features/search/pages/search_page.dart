@@ -12,6 +12,7 @@ import 'package:sangeet/models/track.dart';
 import 'package:sangeet/models/search_models.dart';
 import 'package:sangeet/services/settings_service.dart';
 import 'package:sangeet/services/search_history_service.dart';
+import 'package:sangeet/services/auto_queue_service.dart';
 import 'package:sangeet/features/artist/pages/artist_detail_page.dart';
 import 'package:sangeet/features/album/pages/album_detail_page.dart';
 import 'package:sangeet/shared/providers/desktop_navigation_provider.dart';
@@ -478,7 +479,8 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                         // Save to history when user clicks on a result
                         _saveToHistory(_lastQuery);
                         final audioService = ref.read(audioPlayerServiceProvider);
-                        audioService.playAll(searchResults, startIndex: index);
+                        // Play single song with auto-queue (don't queue all search results)
+                        audioService.play(track, source: PlaySource.searchSingleSong);
                       },
                     );
                   },

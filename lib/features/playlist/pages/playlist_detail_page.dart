@@ -12,6 +12,7 @@ import 'package:sangeet/models/spotify_models.dart';
 import 'package:sangeet/shared/providers/track_matcher_provider.dart';
 import 'package:sangeet/services/track_matcher_service.dart';
 import 'package:sangeet/services/audio_player_service.dart';
+import 'package:sangeet/services/auto_queue_service.dart';
 import 'package:sangeet/models/track.dart';
 import 'package:sangeet/shared/providers/desktop_navigation_provider.dart';
 import 'package:sangeet/shared/widgets/find_manually_sheet.dart';
@@ -376,7 +377,8 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
       final trackMatcher = ref.read(trackMatcherServiceProvider);
       final matchedTracks = await trackMatcher.matchSpotifyPluginTracks(tracks.take(50).toList());
       final audioService = ref.read(audioPlayerServiceProvider);
-      audioService.playAll(matchedTracks);
+      // Playlist playback - disable auto-queue
+      audioService.playAll(matchedTracks, source: PlaySource.playlist);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),
@@ -400,7 +402,8 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
       final trackMatcher = ref.read(trackMatcherServiceProvider);
       final matchedTracks = await trackMatcher.matchSpotifyPluginTracks(shuffled.take(50).toList());
       final audioService = ref.read(audioPlayerServiceProvider);
-      audioService.playAll(matchedTracks);
+      // Playlist playback - disable auto-queue
+      audioService.playAll(matchedTracks, source: PlaySource.playlist);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),

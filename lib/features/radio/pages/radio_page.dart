@@ -6,6 +6,7 @@ import 'package:gap/gap.dart';
 import 'package:sangeet/core/theme/app_theme.dart';
 import 'package:sangeet/services/radio_service.dart';
 import 'package:sangeet/services/mood_playlist_service.dart';
+import 'package:sangeet/services/auto_queue_service.dart';
 import 'package:sangeet/shared/providers/audio_provider.dart';
 import 'package:sangeet/models/track.dart';
 
@@ -433,7 +434,8 @@ class _RadioPageState extends ConsumerState<RadioPage> {
       final tracks = await _radioService.getNextTracks(count: 10);
       if (tracks.isNotEmpty) {
         final audioService = ref.read(audioPlayerServiceProvider);
-        await audioService.playAll([track, ...tracks]);
+        // Radio has its own queue management, disable auto-queue
+        await audioService.playAll([track, ...tracks], source: PlaySource.playlist);
       }
       
       if (mounted) {
@@ -463,7 +465,8 @@ class _RadioPageState extends ConsumerState<RadioPage> {
       final tracks = await _radioService.getNextTracks(count: 10);
       if (tracks.isNotEmpty) {
         final audioService = ref.read(audioPlayerServiceProvider);
-        await audioService.playAll(tracks);
+        // Radio has its own queue management, disable auto-queue
+        await audioService.playAll(tracks, source: PlaySource.playlist);
       }
       
       if (mounted) {
@@ -495,7 +498,8 @@ class _RadioPageState extends ConsumerState<RadioPage> {
       final tracks = await _moodService.getMoodPlaylist(mood, limit: 20);
       if (tracks.isNotEmpty) {
         final audioService = ref.read(audioPlayerServiceProvider);
-        await audioService.playAll(tracks);
+        // Mood playlist - disable auto-queue
+        await audioService.playAll(tracks, source: PlaySource.playlist);
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -523,7 +527,8 @@ class _RadioPageState extends ConsumerState<RadioPage> {
       final tracks = await _moodService.getActivityPlaylist(activity, limit: 20);
       if (tracks.isNotEmpty) {
         final audioService = ref.read(audioPlayerServiceProvider);
-        await audioService.playAll(tracks);
+        // Activity playlist - disable auto-queue
+        await audioService.playAll(tracks, source: PlaySource.playlist);
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

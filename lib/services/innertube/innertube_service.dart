@@ -130,18 +130,24 @@ class InnertubeService {
   }
 
   /// Get next/related songs for radio
+  /// Uses RDAMVM playlist format to get a full radio queue of similar songs
   Future<List<Track>> getNextSongs(String videoId, {String? playlistId}) async {
     try {
+      // Use radio playlist ID format (RDAMVM + videoId) to get more related songs
+      // This is the same approach used by YouTube Music for "Start Radio" feature
+      final radioPlaylistId = playlistId ?? 'RDAMVM$videoId';
+      
       final body = {
         'context': _webContext,
         'videoId': videoId,
+        'playlistId': radioPlaylistId,
+        'params': 'wAEB', // Radio mode parameter - crucial for getting full radio queue
         'isAudioOnly': true,
-        if (playlistId != null) 'playlistId': playlistId,
+        'enablePersistentPlaylistPanel': true,
         'tunerSettingValue': 'AUTOMIX_SETTING_NORMAL',
-        'watchEndpointMusicSupportedConfigs': {
-          'musicVideoType': 'MUSIC_VIDEO_TYPE_ATV'
-        }
       };
+
+      print('InnertubeService: Fetching radio for $videoId with playlist $radioPlaylistId');
 
       final response = await http.post(
         Uri.parse('$_baseUrl/next?key=$_apiKey'),
@@ -354,17 +360,32 @@ class InnertubeService {
           ?[0]?['tabRenderer']?['content']?['musicQueueRenderer']?['content']
           ?['playlistPanelRenderer']?['contents'];
       
-      if (contents == null) return tracks;
+      if (contents == null) {
+        print('InnertubeService: No contents found in next response');
+        return tracks;
+      }
+      
+      print('InnertubeService: Found ${(contents as List).length} items in next response');
 
+      // Skip the first item as it's usually the currently playing song
+      bool isFirst = true;
       for (final item in contents) {
         final renderer = item['playlistPanelVideoRenderer'];
         if (renderer == null) continue;
 
         final track = _parsePlaylistPanelVideo(renderer);
         if (track != null) {
+          // Skip the first track (currently playing song)
+          if (isFirst) {
+            print('InnertubeService: Skipping first track (current): ${track.title}');
+            isFirst = false;
+            continue;
+          }
           tracks.add(track);
         }
       }
+      
+      print('InnertubeService: Parsed ${tracks.length} related tracks');
     } catch (e) {
       print('InnertubeService: Parse next error: $e');
     }

@@ -10,6 +10,7 @@ import 'package:sangeet/shared/providers/youtube_provider.dart';
 import 'package:sangeet/shared/providers/audio_provider.dart';
 import 'package:sangeet/shared/providers/quick_picks_provider.dart';
 import 'package:sangeet/services/user_preferences_service.dart';
+import 'package:sangeet/services/auto_queue_service.dart';
 import 'package:sangeet/models/track.dart';
 import 'package:sangeet/models/related_page.dart';
 import 'package:sangeet/features/album/pages/album_detail_page.dart';
@@ -372,9 +373,9 @@ class HomePage extends ConsumerWidget {
                 child: TrackCard(
                   track: track,
                   onTap: () {
-                    // Play this track and add rest to queue
+                    // Play single track with auto-queue enabled for home page
                     final audioService = ref.read(audioPlayerServiceProvider);
-                    audioService.playAll(tracks, startIndex: index);
+                    audioService.play(track, source: PlaySource.homeSingleSong);
                   },
                 ),
               );
@@ -437,8 +438,9 @@ class HomePage extends ConsumerWidget {
                     child: TrackCard(
                       track: track,
                       onTap: () {
+                        // Play single track with auto-queue enabled for home page
                         final audioService = ref.read(audioPlayerServiceProvider);
-                        audioService.playAll(tracks, startIndex: index);
+                        audioService.play(track, source: PlaySource.homeSingleSong);
                       },
                     ),
                   );
@@ -512,8 +514,9 @@ class HomePage extends ConsumerWidget {
                     child: TrackCard(
                       track: track,
                       onTap: () {
+                        // Play single track with auto-queue enabled for home page
                         final audioService = ref.read(audioPlayerServiceProvider);
-                        audioService.playAll(tracks, startIndex: index);
+                        audioService.play(track, source: PlaySource.homeSingleSong);
                       },
                     ),
                   );
@@ -555,8 +558,9 @@ class HomePage extends ConsumerWidget {
             child: TrackCard(
               track: track,
               onTap: () {
+                // Play single track with auto-queue enabled for home page
                 final audioService = ref.read(audioPlayerServiceProvider);
-                audioService.playAll(tracks, startIndex: index);
+                audioService.play(track, source: PlaySource.homeSingleSong);
               },
             ),
           );

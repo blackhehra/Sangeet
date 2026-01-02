@@ -11,6 +11,7 @@ import 'package:sangeet/shared/widgets/playing_indicator.dart';
 import 'package:sangeet/shared/providers/desktop_navigation_provider.dart';
 import 'package:sangeet/features/playlist/pages/custom_playlists_page.dart';
 import 'package:sangeet/services/sharing/share_service.dart';
+import 'package:sangeet/services/auto_queue_service.dart';
 import 'package:sangeet/features/sharing/widgets/share_bottom_sheet.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -257,7 +258,8 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
                         IconButton(
                           onPressed: () {
                             final audioService = ref.read(audioPlayerServiceProvider);
-                            audioService.playAll(_sortedTracks, startIndex: 0);
+                            // Playlist playback - disable auto-queue
+                            audioService.playAll(_sortedTracks, startIndex: 0, source: PlaySource.playlist);
                             audioService.toggleShuffle();
                           },
                           icon: const Icon(Iconsax.shuffle),
@@ -266,9 +268,11 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
                         const Gap(8),
                         FloatingActionButton(
                           onPressed: () {
+                            // Playlist playback - disable auto-queue
                             ref.read(audioPlayerServiceProvider).playAll(
                                   _sortedTracks,
                                   startIndex: 0,
+                                  source: PlaySource.playlist,
                                 );
                           },
                           backgroundColor: AppTheme.primaryColor,
@@ -461,7 +465,8 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
                               }
                             }
                           : () {
-                              audioService.playAll(_sortedTracks, startIndex: index);
+                              // Playlist source disables auto-queue
+                              audioService.playAll(_sortedTracks, startIndex: index, source: PlaySource.playlist);
                             },
                     ),
                   );

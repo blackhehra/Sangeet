@@ -12,6 +12,7 @@ import 'package:sangeet/models/related_page.dart';
 import 'package:sangeet/services/innertube/innertube_service.dart';
 import 'package:sangeet/services/ytmusic/yt_music_service.dart';
 import 'package:sangeet/services/followed_artists_service.dart';
+import 'package:sangeet/services/auto_queue_service.dart';
 import 'package:sangeet/features/album/pages/album_detail_page.dart';
 import 'package:sangeet/shared/providers/desktop_navigation_provider.dart';
 
@@ -127,7 +128,8 @@ class _ArtistDetailPageState extends ConsumerState<ArtistDetailPage> {
     final sortedTracks = _sortTracks(allTracks);
     final startIndex = sortedTracks.indexOf(track);
     final audioService = ref.read(audioPlayerServiceProvider);
-    audioService.playAll(sortedTracks, startIndex: startIndex);
+    // Artist page playback - disable auto-queue
+    audioService.playAll(sortedTracks, startIndex: startIndex, source: PlaySource.artist);
   }
 
   Future<void> _playAll(List<Track> tracks) async {
@@ -138,7 +140,8 @@ class _ArtistDetailPageState extends ConsumerState<ArtistDetailPage> {
     try {
       final sortedTracks = _sortTracks(tracks);
       final audioService = ref.read(audioPlayerServiceProvider);
-      audioService.playAll(sortedTracks);
+      // Artist page playback - disable auto-queue
+      audioService.playAll(sortedTracks, source: PlaySource.artist);
     } finally {
       if (mounted) setState(() => _isPlayingAll = false);
     }
@@ -152,7 +155,8 @@ class _ArtistDetailPageState extends ConsumerState<ArtistDetailPage> {
     try {
       final shuffled = List<Track>.from(tracks)..shuffle();
       final audioService = ref.read(audioPlayerServiceProvider);
-      audioService.playAll(shuffled);
+      // Artist page playback - disable auto-queue
+      audioService.playAll(shuffled, source: PlaySource.artist);
     } finally {
       if (mounted) setState(() => _isPlayingAll = false);
     }

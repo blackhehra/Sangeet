@@ -5,6 +5,7 @@ import 'package:iconsax/iconsax.dart';
 import 'package:gap/gap.dart';
 import 'package:sangeet/core/theme/app_theme.dart';
 import 'package:sangeet/services/play_history_service.dart';
+import 'package:sangeet/services/auto_queue_service.dart';
 import 'package:sangeet/shared/providers/audio_provider.dart';
 import 'package:sangeet/shared/widgets/song_tile.dart';
 import 'package:sangeet/shared/widgets/playing_indicator.dart';
@@ -245,8 +246,8 @@ class _LikedSongsPageState extends ConsumerState<LikedSongsPage> {
                     ),
                     IconButton(
                       onPressed: () {
-                        // Shuffle play
-                        audioService.playAll(_likedSongs, startIndex: 0);
+                        // Shuffle play - playlist source disables auto-queue
+                        audioService.playAll(_likedSongs, startIndex: 0, source: PlaySource.playlist);
                         audioService.toggleShuffle();
                       },
                       icon: const Icon(Iconsax.shuffle),
@@ -254,7 +255,8 @@ class _LikedSongsPageState extends ConsumerState<LikedSongsPage> {
                     const Gap(8),
                     FloatingActionButton(
                       onPressed: () {
-                        audioService.playAll(_likedSongs, startIndex: 0);
+                        // Playlist source disables auto-queue
+                        audioService.playAll(_likedSongs, startIndex: 0, source: PlaySource.playlist);
                       },
                       backgroundColor: AppTheme.primaryColor,
                       child: const Icon(Iconsax.play5, color: Colors.white),
@@ -406,7 +408,8 @@ class _LikedSongsPageState extends ConsumerState<LikedSongsPage> {
               }
             }
           : () {
-              audioService.playAll(_likedSongs, startIndex: index);
+              // Playlist source disables auto-queue
+              audioService.playAll(_likedSongs, startIndex: index, source: PlaySource.playlist);
             },
     );
   }

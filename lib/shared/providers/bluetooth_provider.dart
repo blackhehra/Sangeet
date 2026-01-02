@@ -3,13 +3,26 @@ import 'package:sangeet/services/bluetooth_audio_service.dart';
 
 /// Provider for BluetoothAudioService
 final bluetoothAudioServiceProvider = Provider<BluetoothAudioService>((ref) {
-  return BluetoothAudioService.instance;
+  final service = BluetoothAudioService.instance;
+  // Ensure service is initialized
+  service.init();
+  return service;
 });
 
 /// Stream provider for connected audio device
-final connectedAudioDeviceProvider = StreamProvider<AudioDevice?>((ref) {
+final connectedAudioDeviceProvider = StreamProvider<AudioDevice?>((ref) async* {
   final service = ref.watch(bluetoothAudioServiceProvider);
-  return service.connectedDeviceStream;
+  
+  // Ensure initialized and emit initial value immediately
+  await service.init();
+  
+  // Emit current device immediately to prevent loading
+  yield service.currentDevice;
+  
+  // Then listen to stream for updates
+  await for (final device in service.connectedDeviceStream) {
+    yield device;
+  }
 });
 
 /// Provider for current connected device (non-stream)

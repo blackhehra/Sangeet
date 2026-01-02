@@ -10,6 +10,7 @@ import 'package:sangeet/services/audio_handler_service.dart';
 import 'package:sangeet/services/track_matcher_service.dart';
 import 'package:sangeet/services/playback_state_service.dart';
 import 'package:sangeet/services/ytmusic/yt_music_service.dart';
+import 'package:sangeet/services/auto_queue_service.dart';
 
 enum RepeatMode { off, all, one }
 
@@ -25,6 +26,7 @@ class AudioPlayerService {
   final StreamingServer _streamingServer = StreamingServer();
   final PlayHistoryService _historyService = PlayHistoryService.instance;
   final PlaybackStateService _playbackStateService = PlaybackStateService.instance;
+  final AutoQueueService _autoQueueService = AutoQueueService();
   
   // Timer for periodic state saving
   Timer? _stateSaveTimer;
@@ -285,22 +287,122 @@ class AudioPlayerService {
         // Play next if available
         if (_currentIndex < _queue.length - 1) {
           skipToNext();
+        } else {
+          // Queue ended - try to auto-queue more songs if enabled
+          _tryAutoQueueMoreSongs();
         }
         break;
     }
   }
+  
+  /// Try to fetch and add more songs via auto-queue
+  Future<void> _tryAutoQueueMoreSongs() async {
+    if (!_autoQueueService.isAutoQueueEnabled) {
+      print('AudioPlayer: Auto-queue not enabled, playback stopped');
+      return;
+    }
+    
+    final currentTrack = this.currentTrack;
+    if (currentTrack == null) return;
+    
+    print('AudioPlayer: Attempting to auto-queue more songs...');
+    
+    // Get existing queue IDs to avoid duplicates
+    final existingIds = _queue.map((t) => t.id).toSet();
+    
+    // Fetch similar songs
+    final newTracks = await _autoQueueService.fetchSimilarSongs(
+      currentTrack.id,
+      existingIds,
+    );
+    
+    if (newTracks.isEmpty) {
+      print('AudioPlayer: No new tracks from auto-queue, playback stopped');
+      return;
+    }
+    
+    // Add new tracks to queue
+    print('AudioPlayer: Auto-queuing ${newTracks.length} similar songs');
+    for (final track in newTracks) {
+      _queue.add(track);
+    }
+    _updateShuffledIndices();
+    _queueController.add(_queue);
+    
+    // Continue playing
+    skipToNext();
+  }
+  
+  /// Check and prefetch auto-queue songs when nearing end of queue
+  void _checkAutoQueuePrefetch() {
+    if (_autoQueueService.shouldFetchMore(_currentIndex, _queue.length)) {
+      final currentTrack = this.currentTrack;
+      if (currentTrack != null) {
+        // Prefetch in background
+        final existingIds = _queue.map((t) => t.id).toSet();
+        _autoQueueService.fetchSimilarSongs(currentTrack.id, existingIds).then((newTracks) {
+          if (newTracks.isNotEmpty) {
+            print('AudioPlayer: Pre-fetched ${newTracks.length} auto-queue songs');
+            for (final track in newTracks) {
+              _queue.add(track);
+            }
+            _updateShuffledIndices();
+            _queueController.add(_queue);
+          }
+        });
+      }
+    }
+  }
 
   /// Play a single track
-  Future<void> play(Track track) async {
+  Future<void> play(Track track, {PlaySource source = PlaySource.unknown}) async {
     // Increment session ID to cancel any stale background operations
     _playbackSessionId++;
-    print('AudioPlayer: New playback session $_playbackSessionId for track: ${track.title}');
+    final sessionId = _playbackSessionId;
+    print('AudioPlayer: New playback session $sessionId for track: ${track.title} (source: $source)');
     
     _queue.clear();
     _queue.add(track);
     _currentIndex = 0;
     _queueController.add(_queue);
+    
+    // Start auto-queue for single song plays from home or search
+    _autoQueueService.startAutoQueue(track.id, source);
+    
+    // Start playback immediately
     await _playCurrentTrack();
+    
+    // If auto-queue is enabled, immediately fetch similar songs in background
+    if (_autoQueueService.isAutoQueueEnabled) {
+      _fetchAutoQueueSongsInBackground(track.id, sessionId);
+    }
+  }
+  
+  /// Fetch auto-queue songs in background without blocking playback
+  void _fetchAutoQueueSongsInBackground(String videoId, int sessionId) {
+    print('AutoQueue: Fetching similar songs for $videoId in background...');
+    
+    final existingIds = _queue.map((t) => t.id).toSet();
+    _autoQueueService.fetchSimilarSongs(videoId, existingIds).then((newTracks) {
+      // Check if session is still valid
+      if (sessionId != _playbackSessionId) {
+        print('AutoQueue: Session changed, discarding fetched songs');
+        return;
+      }
+      
+      if (newTracks.isNotEmpty) {
+        print('AutoQueue: Adding ${newTracks.length} similar songs to queue');
+        for (final track in newTracks) {
+          _queue.add(track);
+        }
+        _updateShuffledIndices();
+        _queueController.add(_queue);
+      } else {
+        print('AutoQueue: No similar songs found');
+      }
+    }).catchError((e) {
+      print('AutoQueue: Error fetching similar songs: $e');
+    });
   }
   
   /// Set a pending track to show in UI immediately (before stream is ready)
@@ -336,7 +438,7 @@ class AudioPlayerService {
   }
 
   /// Play a list of tracks
-  Future<void> playAll(List<Track> tracks, {int startIndex = 0}) async {
+  Future<void> playAll(List<Track> tracks, {int startIndex = 0, PlaySource source = PlaySource.unknown}) async {
     if (tracks.isEmpty) {
       print('AudioPlayer: playAll called with empty tracks list');
       return;
@@ -344,7 +446,7 @@ class AudioPlayerService {
     
     // Increment session ID to cancel any stale background operations
     _playbackSessionId++;
-    print('AudioPlayer: New playback session $_playbackSessionId for ${tracks.length} tracks');
+    print('AudioPlayer: New playback session $_playbackSessionId for ${tracks.length} tracks (source: $source)');
     print('AudioPlayer: First track: ${tracks[startIndex].title} (ID: ${tracks[startIndex].id})');
     
     _queue.clear();
@@ -352,6 +454,10 @@ class AudioPlayerService {
     _currentIndex = startIndex.clamp(0, tracks.length - 1);
     _updateShuffledIndices();
     _queueController.add(_queue);
+    
+    // Disable auto-queue for playlists/albums/search results (multiple tracks)
+    _autoQueueService.startAutoQueue(tracks[startIndex].id, source);
+    
     await _playCurrentTrack();
   }
 
@@ -513,6 +619,9 @@ class AudioPlayerService {
     print('AudioPlayer: Playing track: ${track.title} (ID: ${track.id})');
     _currentTrackController.add(track);
     _bufferingController.add(true);
+    
+    // Check if we should prefetch auto-queue songs
+    _checkAutoQueuePrefetch();
     
     // Start buffering timeout to detect stuck states
     _startBufferingTimeout();

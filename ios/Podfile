@@ -3,35 +3,18 @@ platform :ios, '13.0'
 
 # CocoaPods analytics sends network requests to Google Analytics. To disable
 # this, uncomment the following line.
-# ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
 # Uncomment this line to use a framework for the Pods project.
 # use_frameworks!
 
+require File.expand_path(File.join('..', 'Flutter', 'flutter_sdk.gemspec'), __FILE__)
+
 def flutter_root
-  defined_xcode_version = `xcodebuild -version | grep 'Xcode' | cut -d' ' -f2`.strip
-  if defined_xcode_version.empty?
-    abort "Error: Xcode not found or not installed."
-  end
-  
-  # Find Flutter installation
-  flutter_installation_path = nil
-  File.expand_path('~/').split(File::PATH_SEPARATOR).each do |path|
-    candidate = File.join(path, 'flutter', 'bin', 'flutter')
-    if File.exist?(candidate) && File.executable?(candidate)
-      flutter_installation_path = File.dirname(candidate)
-      break
-    end
-  end
-  
-  unless flutter_installation_path
-    abort "Error: Flutter not found. Install Flutter or add it to PATH."
-  end
-  
-  flutter_installation_path
+  File.expand_path('..', __dir__)
 end
 
-require File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper')
+load File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper')
 
 flutter_ios_podfile_setup(file)
 

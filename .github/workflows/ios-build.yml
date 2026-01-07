@@ -33,10 +33,37 @@ jobs:
     - name: Install dependencies
       run: flutter pub get
       
-    - name: Clean and reinstall pods
+    - name: Clean and reinstall pods with code signing disabled
       run: |
         cd ios
         rm -rf Pods Podfile.lock .symlinks Flutter.podspec
+        
+        # Add code signing disabled to Podfile post_install hook
+        if grep -q "post_install" Podfile; then
+          # Append to existing post_install
+          sed -i '' '/post_install do |installer|/a\
+            installer.pods_project.targets.each do |target|\
+              target.build_configurations.each do |config|\
+                config.build_settings["CODE_SIGNING_REQUIRED"] = "NO"\
+                config.build_settings["CODE_SIGNING_ALLOWED"] = "NO"\
+              end\
+            end
+          ' Podfile
+        else
+          # Add new post_install block
+          cat >> Podfile << 'EOF'
+        
+        post_install do |installer|
+          installer.pods_project.targets.each do |target|
+            target.build_configurations.each do |config|
+              config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+              config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+            end
+          end
+        end
+        EOF
+        fi
+        
         pod install --repo-update
         cd ..
       
@@ -49,20 +76,32 @@ jobs:
       
     - name: Build iOS (no signing)
       run: |
-        flutter build ios --release --no-codesign
+        # First run flutter build to generate necessary files
+        flutter build ios --release --no-codesign --config-only
         
-    -  name: Create IPA structure
-       run: |
-        # Check if Flutter already created an IPA
-        if [ -f "build/ios/iphonesimulator/Runner.app.ipa" ]; then
-          cp build/ios/iphonesimulator/Runner.app.ipa Sangeet-iOS.ipa
-        else
-          # Create IPA manually if needed
-          mkdir -p Payload
-          cp -r build/ios/iphonesimulator/Runner.app Payload/
-          zip -r Sangeet-iOS.ipa Payload
-          rm -rf Payload
-        fi
+        # Build using xcodebuild with code signing completely disabled
+        cd ios
+        xcodebuild -workspace Runner.xcworkspace \
+          -scheme Runner \
+          -configuration Release \
+          -sdk iphoneos \
+          -destination 'generic/platform=iOS' \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO \
+          DEVELOPMENT_TEAM="" \
+          PROVISIONING_PROFILE_SPECIFIER="" \
+          -archivePath build/Runner.xcarchive \
+          archive
+        cd ..
+        
+    - name: Create IPA structure
+      run: |
+        # Create IPA from the archive
+        mkdir -p Payload
+        cp -r ios/build/Runner.xcarchive/Products/Applications/Runner.app Payload/
+        zip -r Sangeet-iOS.ipa Payload
+        rm -rf Payload
         
     - name: Upload IPA artifact
       uses: actions/upload-artifact@v4

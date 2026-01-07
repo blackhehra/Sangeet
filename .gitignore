@@ -1,0 +1,56 @@
+# Build outputs
+build/
+dist/
+*.exe
+*.apk
+*.ipa
+
+# Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+/build/
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Lock files (can be regenerated)
+pubspec.lock
+packages/**/pubspec.lock
+**/Podfile.lock
+
+# Large build artifacts
+android/app/build/
+android/build/
+ios/build/
+linux/build/
+macos/build/
+windows/build/
+flutter_app/build/
+
+# Gradle
+android/.gradle/
+android/gradle/wrapper/
+packages/**/android/.gradle/
+packages/**/android/gradle/wrapper/
+
+# Kotlin
+android/.kotlin/
+packages/**/android/.kotlin/
+
+# Node modules (if any)
+node_modules/
+
+# Large binary files
+*.jar
+*.aar
+*.so
+*.a

@@ -1,0 +1,9 @@
+app_id: SANGEET-MUSIC-APP-2025-WINDOWS
+publisher: Sangeet
+publisher_url: https://github.com/sangeet-app
+display_name: Sangeet
+create_desktop_icon: true
+install_dir_name: Sangeet
+script_template: inno_setup.iss
+locales:
+  - en

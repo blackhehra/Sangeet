@@ -63,6 +63,14 @@ post_install do |installer|
       
       # iOS deployment target
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+      
+      # Fix Flutter module linking for simulator builds
+      if config.build_settings['PRODUCT_NAME'] != 'Flutter'
+        config.build_settings['LIBRARY_SEARCH_PATHS'] ||= ['$(inherited)']
+        config.build_settings['LIBRARY_SEARCH_PATHS'] << '$(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)'
+        config.build_settings['FRAMEWORK_SEARCH_PATHS'] ||= ['$(inherited)']
+        config.build_settings['FRAMEWORK_SEARCH_PATHS'] << '$(PROJECT_DIR)/Flutter'
+      end
     end
   end
 end

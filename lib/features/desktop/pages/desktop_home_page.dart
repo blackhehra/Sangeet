@@ -595,7 +595,7 @@ class DesktopHomePage extends ConsumerWidget {
                     albumName: album.title,
                     imageUrl: album.thumbnailUrl,
                     subtitle: album.artist,
-                    isYouTube: true, // Home page albums are from YouTube
+                    isMusicAlbum: true, // Home page albums are from YouTube Music
                   );
                 },
                 child: Column(

@@ -725,7 +725,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                             albumName: album.title,
                             imageUrl: album.thumbnailUrl,
                             subtitle: album.artist,
-                            isYouTube: true, // Search results are from YouTube
+                            isMusicAlbum: true, // Search results are from YouTube Music
                           );
                         } else {
                           Navigator.push(

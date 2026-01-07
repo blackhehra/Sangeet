@@ -9,22 +9,23 @@ on:
 
 jobs:
   build-ios:
-    runs-on: macos-15
+    runs-on: macos-14
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      
+    - name: List all available iOS Simulator runtimes
+      run: xcrun simctl list runtimes
+      
+    - name: List available simulator devices
+      run: xcrun simctl list devices available
       
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
         flutter-version: '3.35.6'
         channel: 'stable'
-        
-    - name: Set Xcode version
-      run: |
-        sudo xcode-select -s /Applications/Xcode_16.3.app
-        xcodebuild -version
         
     - name: Create .env file
       run: echo "YTM_API_KEY=${{ secrets.YTM_API_KEY }}" > .env
@@ -36,10 +37,7 @@ jobs:
       run: |
         cd ios
         rm -rf Pods Podfile.lock .symlinks Flutter.podspec
-        rm -rf ~/Library/Developer/Xcode/DerivedData/*
-        pod cache clean --all
-        pod deintegrate
-        pod install --repo-update --clean-install
+        pod install --repo-update
         cd ..
       
     - name: Get version from pubspec.yaml
@@ -49,12 +47,12 @@ jobs:
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "Building version: $VERSION"
       
-    - name: Build iOS (simulator)
+    - name: Build iOS (no signing)
       run: |
-        flutter build ios --simulator --verbose
+        flutter build ios --release --no-codesign
         
-    - name: Create IPA structure
-      run: |
+    -  name: Create IPA structure
+       run: |
         # Check if Flutter already created an IPA
         if [ -f "build/ios/iphonesimulator/Runner.app.ipa" ]; then
           cp build/ios/iphonesimulator/Runner.app.ipa Sangeet-iOS.ipa

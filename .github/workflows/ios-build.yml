@@ -15,15 +15,6 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
-    - name: Set Xcode version
-      run: sudo xcode-select -s /Applications/Xcode_16.3.app
-      
-    - name: List all available iOS Simulator runtimes
-      run: xcrun simctl list runtimes
-      
-    - name: List available simulator devices
-      run: xcrun simctl list devices available
-      
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
@@ -40,7 +31,10 @@ jobs:
       run: |
         cd ios
         rm -rf Pods Podfile.lock .symlinks Flutter.podspec
-        pod install --repo-update
+        rm -rf ~/Library/Developer/Xcode/DerivedData/*
+        pod cache clean --all
+        pod deintegrate
+        pod install --repo-update --clean-install
         cd ..
       
     - name: Get version from pubspec.yaml

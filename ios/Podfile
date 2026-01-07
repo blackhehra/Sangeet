@@ -34,7 +34,7 @@ end
 
 require File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper')
 
-flutter_ios_podfile_setup(__FILE__)
+flutter_ios_podfile_setup
 
 target 'Runner' do
   use_frameworks!

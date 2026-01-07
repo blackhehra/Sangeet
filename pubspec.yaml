@@ -92,8 +92,8 @@ dependencies:
   flutter_blue_plus: ^2.1.0
   permission_handler: ^11.3.1
   
-  # Voice Recognition (temporarily disabled due to Swift concurrency issues)
-  # speech_to_text: ^7.3.0
+  # Voice Recognition
+  speech_to_text: ^7.0.0
   
   # Local Server for streaming
   shelf: ^1.4.1

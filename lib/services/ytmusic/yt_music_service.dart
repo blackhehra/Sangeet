@@ -44,7 +44,7 @@ class YtMusicService {
       'accept': '*/*',
       'accept-encoding': 'gzip, deflate',
       'content-type': 'application/json',
-      'origin': _httpsYtmDomain,
+      'origin': _httpsMusicDomain,
       'cookie': 'CONSENT=YES+1',
     };
   }

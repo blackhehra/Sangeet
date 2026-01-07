@@ -61,7 +61,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         _selectedPlaylistId = navState.playlistId;
         _isLikedSongsSelected = false;
         if (navState.isAlbum) {
-          if (navState.isYouTubeAlbum) {
+          if (navState.isMusicAlbum) {
             // YouTube album - use AlbumDetailPage
             _centerContent = AlbumDetailPage(
               key: ValueKey('yt_album_${navState.playlistId}'),

@@ -33,7 +33,7 @@ class DesktopNavigationState {
     this.artistId,
     this.artistName,
     this.artistSubscribersText,
-    this.isYouTubeAlbum = false,
+    this.isMusicAlbum = false,
     this.source = NavigationSource.home,
   });
 
@@ -48,7 +48,7 @@ class DesktopNavigationState {
     String? artistId,
     String? artistName,
     String? artistSubscribersText,
-    bool? isYouTubeAlbum,
+    bool? isMusicAlbum,
     NavigationSource? source,
   }) {
     return DesktopNavigationState(
@@ -62,7 +62,7 @@ class DesktopNavigationState {
       artistId: artistId ?? this.artistId,
       artistName: artistName ?? this.artistName,
       artistSubscribersText: artistSubscribersText ?? this.artistSubscribersText,
-      isYouTubeAlbum: isYouTubeAlbum ?? this.isYouTubeAlbum,
+      isMusicAlbum: isMusicAlbum ?? this.isMusicAlbum,
       source: source ?? this.source,
     );
   }

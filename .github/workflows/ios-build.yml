@@ -51,7 +51,7 @@ jobs:
       
     - name: Build iOS (simulator)
       run: |
-        flutter build ios --simulator
+        flutter build ios --simulator --verbose
         
     - name: Create IPA structure
       run: |

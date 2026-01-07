@@ -28,10 +28,11 @@ def flutter_root
     abort "Error: Flutter not found. Install Flutter or add it to PATH."
   end
   
-  File.join(flutter_installation_path, 'bin', 'flutter')
+  # Return Flutter SDK root directory (two levels up from bin/flutter)
+  File.dirname(flutter_installation_path)
 end
 
-require File.join(File.dirname(flutter_root), 'packages', 'flutter_tools', 'bin', 'podhelper')
+require File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper')
 
 flutter_ios_podfile_setup(file)
 

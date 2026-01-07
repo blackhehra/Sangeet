@@ -20,7 +20,8 @@ import 'package:sangeet/shared/providers/desktop_navigation_provider.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:permission_handler/permission_handler.dart';
-import 'package:speech_to_text/speech_to_text.dart';
+// speech_to_text disabled due to iOS Swift concurrency issues
+// import 'package:speech_to_text/speech_to_text.dart';
 import 'package:sangeet/features/search/widgets/listening_wave_indicator.dart';
 
 // Search filter enum
@@ -45,7 +46,8 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   final SearchHistoryService _historyService = SearchHistoryService.instance;
-  final SpeechToText _speechToText = SpeechToText();
+  // Speech disabled - Swift concurrency issues on iOS
+  // final SpeechToText _speechToText = SpeechToText();
   String _lastQuery = '';
   bool _isSearchFocused = false; // Track if search bar is focused
   bool _speechEnabled = false;
@@ -67,9 +69,10 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     });
   }
 
-  /// Initialize speech recognition
+  /// Initialize speech recognition (disabled due to iOS Swift issues)
   void _initSpeech() async {
-    _speechEnabled = await _speechToText.initialize();
+    // Speech recognition disabled - Swift concurrency issues on iOS
+    _speechEnabled = false;
     if (mounted) setState(() {});
     await _checkMicrophonePermission();
   }
@@ -115,7 +118,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   void dispose() {
     _searchController.dispose();
     _focusNode.dispose();
-    _speechToText.stop();
+    // _speechToText.stop(); // Disabled
     super.dispose();
   }
 
@@ -219,48 +222,13 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     // Start listening immediately
     setState(() => _isListening = true);
     
-    // Auto-stop after timeout if no voice detected
-    Future.delayed(const Duration(seconds: 5), () {
-      if (mounted && _isListening && _speechToText.isListening) {
-        _stopVoiceSearch();
-      }
-    });
-    
-    try {
-      await _speechToText.listen(
-        onResult: (result) {
-          if (result.finalResult && result.recognizedWords.isNotEmpty) {
-            // Perform search with recognized words
-            setState(() => _isListening = false);
-            _searchController.text = result.recognizedWords;
-            _performSearch(result.recognizedWords);
-          }
-        },
-        listenFor: const Duration(seconds: 5),
-        pauseFor: const Duration(seconds: 2),
-        partialResults: false,
-        cancelOnError: true,
-        listenMode: ListenMode.confirmation,
-        onSoundLevelChange: (level) {
-          // Sound level detected, we can use this for visual feedback
-        },
-      );
-      
-      // If listening stopped without result, reset state
-      if (mounted && !_speechToText.isListening) {
-        setState(() => _isListening = false);
-      }
-    } catch (e) {
-      print('Error starting voice search: $e');
-      setState(() => _isListening = false);
-      // Show dialog as fallback if voice search fails
-      _showVoiceSearchDialog();
-    }
+    // Speech recognition disabled - show dialog as fallback
+    _showVoiceSearchDialog();
   }
 
   /// Stop voice search
   Future<void> _stopVoiceSearch() async {
-    await _speechToText.stop();
+    // _speechToText.stop(); // Disabled
     setState(() => _isListening = false);
   }
 
@@ -1155,7 +1123,8 @@ class _VoiceSearchDialogState extends State<_VoiceSearchDialog> {
   bool _isListening = false;
   bool _hasPermission = false;
   bool _speechEnabled = false;
-  final SpeechToText _speechToText = SpeechToText();
+  // Speech disabled - Swift concurrency issues on iOS
+  // final SpeechToText _speechToText = SpeechToText();
 
   @override
   void initState() {
@@ -1166,13 +1135,14 @@ class _VoiceSearchDialogState extends State<_VoiceSearchDialog> {
   @override
   void dispose() {
     _controller.dispose();
-    _speechToText.stop();
+    // _speechToText.stop(); // Disabled
     super.dispose();
   }
 
-  /// Initialize speech recognition
+  /// Initialize speech recognition (disabled due to iOS Swift issues)
   void _initSpeech() async {
-    _speechEnabled = await _speechToText.initialize();
+    // Speech recognition disabled - Swift concurrency issues on iOS
+    _speechEnabled = false;
     setState(() {});
     await _checkMicrophonePermission();
   }
@@ -1228,31 +1198,13 @@ class _VoiceSearchDialogState extends State<_VoiceSearchDialog> {
       return;
     }
     
-    // Start listening
-    setState(() => _isListening = true);
-    
-    await _speechToText.listen(
-      onResult: (result) {
-        if (result.finalResult) {
-          _controller.text = result.recognizedWords;
-          setState(() => _isListening = false);
-          // Auto-submit if we got a result
-          if (result.recognizedWords.isNotEmpty) {
-            Navigator.pop(context, result.recognizedWords);
-          }
-        }
-      },
-      listenFor: const Duration(seconds: 30),
-      pauseFor: const Duration(seconds: 3),
-      partialResults: false,
-      cancelOnError: true,
-      listenMode: ListenMode.confirmation,
-    );
+    // Speech recognition disabled - fallback to text input only
+    setState(() => _isListening = false);
   }
 
   /// Stop listening
   Future<void> _stopListening() async {
-    await _speechToText.stop();
+    // _speechToText.stop(); // Disabled
     setState(() => _isListening = false);
   }
 

@@ -8,13 +8,30 @@ ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 # Uncomment this line to use a framework for the Pods project.
 # use_frameworks!
 
-require File.expand_path(File.join('..', 'Flutter', 'flutter_sdk.gemspec'), __FILE__)
-
 def flutter_root
-  File.expand_path('..', __dir__)
+  defined_xcode_version = `xcodebuild -version | grep 'Xcode' | cut -d' ' -f2`.strip
+  if defined_xcode_version.empty?
+    abort "Error: Xcode not found or not installed."
+  end
+  
+  # Find Flutter installation
+  flutter_installation_path = nil
+  ['/usr/local/bin', '/opt/homebrew/bin', ENV['PATH'].split(':')].flatten.each do |path|
+    candidate = File.join(path, 'flutter')
+    if File.exist?(candidate) && File.executable?(candidate)
+      flutter_installation_path = File.dirname(candidate)
+      break
+    end
+  end
+  
+  unless flutter_installation_path
+    abort "Error: Flutter not found. Install Flutter or add it to PATH."
+  end
+  
+  File.join(flutter_installation_path, 'bin', 'flutter')
 end
 
-load File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper')
+require File.join(File.dirname(flutter_root), 'packages', 'flutter_tools', 'bin', 'podhelper')
 
 flutter_ios_podfile_setup(file)
 

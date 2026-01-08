@@ -634,6 +634,16 @@ class AudioPlayerService {
       return;
     }
 
+    // Cancel any pending resume timeout (in case we're playing new track while stuck)
+    _resumeTimeoutTimer?.cancel();
+    _resumeTimeoutTimer = null;
+    
+    // Stop player to ensure clean state (fixes stuck player when switching tracks)
+    if (_player.state.buffering || (!_player.state.playing && _player.state.position > Duration.zero)) {
+      print('AudioPlayer: Stopping player to reset state before new track');
+      await _player.stop();
+    }
+
     // Capture the current track loading ID at the start
     final currentLoadingId = _trackLoadingId;
     
@@ -907,9 +917,101 @@ class AudioPlayerService {
     }
   }
 
-  /// Resume playback
+  // Timer to detect stuck resume and refresh stream
+  Timer? _resumeTimeoutTimer;
+  
+  /// Resume playback with stale stream detection
+  /// If resuming after a long pause, the stream URL may have expired
+  /// This detects stuck buffering and refreshes the stream
   Future<void> resume() async {
+    // Check if we have a restored track that needs to be loaded first
+    if (_isRestoredTrackPending) {
+      print('AudioPlayer: Resuming restored track');
+      await resumeFromRestored();
+      return;
+    }
+    
+    final track = currentTrack;
+    if (track == null) {
+      print('AudioPlayer: No track to resume');
+      return;
+    }
+    
+    // Store current position before attempting resume
+    final currentPosition = _player.state.position;
+    
+    // Cancel any existing resume timeout
+    _resumeTimeoutTimer?.cancel();
+    
+    // Start a timeout to detect stuck resume (stale stream)
+    _resumeTimeoutTimer = Timer(const Duration(seconds: 8), () async {
+      // Check if we're still buffering after 8 seconds - likely stale stream
+      if (!_player.state.playing && _player.state.buffering) {
+        print('AudioPlayer: Resume stuck (stale stream detected), refreshing...');
+        await _refreshAndResumeTrack(track, currentPosition);
+      }
+    });
+    
+    // Try normal resume first
     await _player.play();
+    
+    // If playback started successfully, cancel the timeout
+    // Listen for playing state change
+    _player.stream.playing.first.then((playing) {
+      if (playing) {
+        _resumeTimeoutTimer?.cancel();
+        _resumeTimeoutTimer = null;
+      }
+    });
+  }
+  
+  /// Refresh stream URL and resume track at given position
+  /// Called when resume detects a stale stream
+  Future<void> _refreshAndResumeTrack(Track track, Duration position) async {
+    print('AudioPlayer: Refreshing stream for ${track.title} at ${position.inSeconds}s');
+    
+    // Stop the player to reset its state
+    await _player.stop();
+    
+    // Clear the cached stream URL to force a fresh fetch
+    _streamingServer.clearCache(track.id);
+    
+    // Show buffering state
+    _bufferingController.add(true);
+    
+    try {
+      // Pre-fetch a fresh stream URL
+      final success = await _streamingServer.prefetchStream(track.id);
+      if (!success) {
+        print('AudioPlayer: Failed to refresh stream, trying full reload');
+        _bufferingController.add(false);
+        // Fall back to full track reload
+        await _playCurrentTrack();
+        return;
+      }
+      
+      // Get fresh stream URL and play
+      final streamUrl = _streamingServer.getStreamUrl(track.id);
+      await _player.open(Media(streamUrl), play: true);
+      
+      // Wait for stream to be ready then seek to position
+      int attempts = 0;
+      while (_player.state.duration == Duration.zero && attempts < 30) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        attempts++;
+      }
+      
+      // Seek back to where we were
+      if (position.inSeconds > 0) {
+        print('AudioPlayer: Seeking to ${position.inSeconds}s after refresh');
+        await _player.seek(position);
+      }
+      
+      print('AudioPlayer: Stream refreshed and resumed successfully');
+    } catch (e) {
+      print('AudioPlayer: Error refreshing stream: $e');
+      _bufferingController.add(false);
+    }
   }
 
   /// Pause playback
@@ -1313,6 +1415,7 @@ class AudioPlayerService {
   /// Dispose resources
   void dispose() {
     _stateSaveTimer?.cancel();
+    _resumeTimeoutTimer?.cancel();
     _cancelBufferingTimeout();
     _saveCurrentState(); // Save state before disposing
     _player.dispose();

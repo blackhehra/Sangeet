@@ -796,60 +796,129 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
                   
                   const Gap(24),
                   
-                  // Track Info & Like
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 32),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.only(right: 2),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                MarqueeText(
-                                  text: track.title,
-                                  style: const TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
+                  // Track Info & Like - Swipeable
+                  Listener(
+                    onPointerDown: (event) {
+                      _gestureStartPoint = event.position;
+                      _gestureDirectionDecided = false;
+                      _isHorizontalGesture = false;
+                    },
+                    onPointerMove: (event) {
+                      if (_gestureStartPoint == null) return;
+                      
+                      final delta = event.position - _gestureStartPoint!;
+                      
+                      if (!_gestureDirectionDecided) {
+                        final totalMovement = delta.distance;
+                        if (totalMovement >= _gestureDecisionThreshold) {
+                          _gestureDirectionDecided = true;
+                          
+                          // Check if movement is primarily horizontal
+                          final isHorizontal = delta.dx.abs() > delta.dy.abs();
+                          
+                          if (isHorizontal) {
+                            _isHorizontalGesture = true;
+                            setState(() {
+                              _isSwiping = true;
+                              _swipeOffset = delta.dx;
+                              _pendingSwipeDirection = 0;
+                            });
+                          }
+                        }
+                      } else if (_isHorizontalGesture) {
+                        setState(() {
+                          _swipeOffset = delta.dx;
+                          if (_swipeOffset > 80) {
+                            _pendingSwipeDirection = -1;
+                          } else if (_swipeOffset < -80) {
+                            _pendingSwipeDirection = 1;
+                          } else {
+                            _pendingSwipeDirection = 0;
+                          }
+                        });
+                      }
+                    },
+                    onPointerUp: (event) {
+                      if (_isHorizontalGesture) {
+                        if (_pendingSwipeDirection == 1) {
+                          audioService.skipToNext();
+                        } else if (_pendingSwipeDirection == -1) {
+                          audioService.skipToPrevious();
+                        }
+                      }
+                      setState(() {
+                        _isSwiping = false;
+                        _swipeOffset = 0.0;
+                        _pendingSwipeDirection = 0;
+                      });
+                      _gestureStartPoint = null;
+                      _gestureDirectionDecided = false;
+                      _isHorizontalGesture = false;
+                    },
+                    onPointerCancel: (event) {
+                      setState(() {
+                        _isSwiping = false;
+                        _swipeOffset = 0.0;
+                        _pendingSwipeDirection = 0;
+                      });
+                      _gestureStartPoint = null;
+                      _gestureDirectionDecided = false;
+                      _isHorizontalGesture = false;
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: 2),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  MarqueeText(
+                                    text: track.title,
+                                    style: const TextStyle(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                    pauseDuration: const Duration(seconds: 3),
+                                    velocityFactor: const Duration(milliseconds: 60),
                                   ),
-                                  pauseDuration: const Duration(seconds: 3),
-                                  velocityFactor: const Duration(milliseconds: 60),
-                                ),
-                                const Gap(4),
-                                MarqueeText(
-                                  text: track.artist,
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    color: Colors.grey.shade400,
+                                  const Gap(4),
+                                  MarqueeText(
+                                    text: track.artist,
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      color: Colors.grey.shade400,
+                                    ),
+                                    pauseDuration: const Duration(seconds: 3),
+                                    velocityFactor: const Duration(milliseconds: 60),
                                   ),
-                                  pauseDuration: const Duration(seconds: 3),
-                                  velocityFactor: const Duration(milliseconds: 60),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                        IconButton(
-                          onPressed: () async {
-                            final newLiked = await PlayHistoryService.instance.toggleLike(track);
-                            setState(() {
-                              _isLiked = newLiked;
-                            });
-                          },
-                          icon: Icon(
-                            _isLiked ? Iconsax.heart5 : Iconsax.heart,
-                            color: _isLiked ? AppTheme.primaryColor : Colors.white,
-                            size: 28,
+                          IconButton(
+                            onPressed: () async {
+                              final newLiked = await PlayHistoryService.instance.toggleLike(track);
+                              setState(() {
+                                _isLiked = newLiked;
+                              });
+                            },
+                            icon: Icon(
+                              _isLiked ? Iconsax.heart5 : Iconsax.heart,
+                              color: _isLiked ? AppTheme.primaryColor : Colors.white,
+                              size: 28,
+                            ),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 48,
+                              minHeight: 48,
+                            ),
                           ),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 48,
-                            minHeight: 48,
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                   

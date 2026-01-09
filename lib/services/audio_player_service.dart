@@ -244,11 +244,6 @@ class AudioPlayerService {
         // when rapidly skipping between tracks
         if (_trackLoadingId != _activeTrackLoadingId) {
           print('AudioPlayer: Ignoring stale completion event (loading: $_trackLoadingId, active: $_activeTrackLoadingId)');
-          // Auto-resume if we were actively playing and got a spurious completion
-          if (_isActivelyPlaying && !_player.state.playing) {
-            print('AudioPlayer: Auto-resuming after spurious completion event');
-            _player.play();
-          }
           return;
         }
         
@@ -271,11 +266,6 @@ class AudioPlayerService {
         if (dur.inSeconds > 0 && pos.inSeconds < dur.inSeconds - 5) {
           // Position is more than 5 seconds from the end - this is a spurious completion event
           print('AudioPlayer: Ignoring spurious completion event (pos: ${pos.inSeconds}s, dur: ${dur.inSeconds}s)');
-          // Auto-resume if we were actively playing and got a spurious completion
-          if (_isActivelyPlaying && !_player.state.playing) {
-            print('AudioPlayer: Auto-resuming after spurious mid-track completion');
-            _player.play();
-          }
           return;
         }
         

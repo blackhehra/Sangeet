@@ -166,27 +166,23 @@ class _MainShellState extends ConsumerState<MainShell> with WidgetsBindingObserv
               ),
               // Nav bar at bottom - rendered last (IN FRONT of player overlay)
               // This ensures nav bar slides up in front of full player when dismissing
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: _SangeetNavigationBar(
-                  currentIndex: _currentIndex,
-                  onDestinationSelected: (index) {
-                    if (index == _currentIndex) {
-                      final navigatorKey = index == 0 
-                          ? homeNavigatorKey 
-                          : index == 1 
-                              ? searchNavigatorKey 
-                              : libraryNavigatorKey;
-                      navigatorKey.currentState?.popUntil((route) => route.isFirst);
-                    } else {
-                      setState(() {
-                        _currentIndex = index;
-                      });
-                    }
-                  },
-                ),
+              // Note: _SangeetNavigationBar returns AnimatedPositioned, so no outer Positioned needed
+              _SangeetNavigationBar(
+                currentIndex: _currentIndex,
+                onDestinationSelected: (index) {
+                  if (index == _currentIndex) {
+                    final navigatorKey = index == 0 
+                        ? homeNavigatorKey 
+                        : index == 1 
+                            ? searchNavigatorKey 
+                            : libraryNavigatorKey;
+                    navigatorKey.currentState?.popUntil((route) => route.isFirst);
+                  } else {
+                    setState(() {
+                      _currentIndex = index;
+                    });
+                  }
+                },
               ),
             ],
           ),
@@ -215,10 +211,14 @@ class _PlayerOverlay extends ConsumerWidget {
     // Nav bar height when fully visible (reduced for tighter spacing)
     const navBarHeight = 72.0;
     
+    // Disable panel dragging when horizontal album art swipe is active
+    final isAlbumArtSwiping = ref.watch(isAlbumArtSwipingProvider);
+    
     return SlidingUpPanel(
       controller: panelController,
       maxHeight: screenSize.height,
       minHeight: canShow ? miniPlayerHeight + navBarHeight : 0,
+      isDraggable: !isAlbumArtSwiping, // Block panel drag during album art swipe
       backdropEnabled: false,
       parallaxEnabled: true,
       renderPanelSheet: false,

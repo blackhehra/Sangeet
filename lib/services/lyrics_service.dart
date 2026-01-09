@@ -13,16 +13,36 @@ class LyricsService {
   LyricsService._internal();
 
   static const String _cachePrefix = 'lyrics_cache_';
+  static const String _failedCachePrefix = 'lyrics_failed_';
   static const String _baseUrl = 'https://lrclib.net/api';
+  static const int _maxRetries = 3;
+  
+  // Track retry attempts per song (in-memory for current session)
+  final Map<String, int> _retryAttempts = {};
 
   /// Fetch lyrics for a track
   /// First checks cache, then fetches from API if not cached
+  /// Limits retries to 3 attempts per song to avoid spamming failed requests
   Future<SubtitleSimple> getLyrics(Track track) async {
     // Try cache first
     final cached = await _getCachedLyrics(track.id);
     if (cached != null && cached.lyrics.isNotEmpty) {
       print('LyricsService: Returning cached lyrics for ${track.title}');
       return cached;
+    }
+    
+    // Check if we've already failed too many times for this track
+    final failedCount = await _getFailedAttempts(track.id);
+    if (failedCount >= _maxRetries) {
+      print('LyricsService: Max retries ($failedCount) reached for ${track.title}, skipping');
+      return SubtitleSimple.empty(track.title);
+    }
+    
+    // Check in-memory retry count for current session
+    final sessionRetries = _retryAttempts[track.id] ?? 0;
+    if (sessionRetries >= _maxRetries) {
+      print('LyricsService: Session retry limit reached for ${track.title}');
+      return SubtitleSimple.empty(track.title);
     }
 
     // Fetch from API
@@ -32,11 +52,20 @@ class LyricsService {
       // Cache the result
       if (lyrics.lyrics.isNotEmpty) {
         await _cacheLyrics(track.id, lyrics);
+        // Clear retry count on success
+        _retryAttempts.remove(track.id);
+        await _clearFailedAttempts(track.id);
+      } else {
+        // Track failed attempt
+        await _incrementFailedAttempts(track.id);
       }
       
       return lyrics;
     } catch (e) {
       print('LyricsService: Error fetching lyrics: $e');
+      // Track failed attempt
+      _retryAttempts[track.id] = sessionRetries + 1;
+      await _incrementFailedAttempts(track.id);
       return SubtitleSimple.empty(track.title);
     }
   }
@@ -186,8 +215,41 @@ class LyricsService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('$_cachePrefix$trackId');
+      await prefs.remove('$_failedCachePrefix$trackId');
+      _retryAttempts.remove(trackId);
     } catch (e) {
       print('LyricsService: Error clearing cache: $e');
+    }
+  }
+  
+  /// Get failed attempt count for a track
+  Future<int> _getFailedAttempts(String trackId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getInt('$_failedCachePrefix$trackId') ?? 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+  
+  /// Increment failed attempt count for a track
+  Future<void> _incrementFailedAttempts(String trackId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final current = prefs.getInt('$_failedCachePrefix$trackId') ?? 0;
+      await prefs.setInt('$_failedCachePrefix$trackId', current + 1);
+    } catch (e) {
+      print('LyricsService: Error tracking failed attempt: $e');
+    }
+  }
+  
+  /// Clear failed attempt count for a track
+  Future<void> _clearFailedAttempts(String trackId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('$_failedCachePrefix$trackId');
+    } catch (e) {
+      // Ignore
     }
   }
 }

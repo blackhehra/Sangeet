@@ -21,3 +21,7 @@ final navigationBarHeightProvider = StateProvider<double>((ref) => 72.0);
 /// Whether to completely hide the player (both mini and full)
 /// Used for pages like settings where player shouldn't be visible
 final hidePlayerProvider = StateProvider<bool>((ref) => false);
+
+/// Whether horizontal swiping on album art is active
+/// When true, panel vertical drag should be disabled to prevent conflicts
+final isAlbumArtSwipingProvider = StateProvider<bool>((ref) => false);

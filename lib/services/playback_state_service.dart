@@ -16,10 +16,13 @@ class PlaybackStateService {
   static const String _lastQueueIndexKey = 'last_queue_index';
 
   SharedPreferences? _prefs;
+  bool _isInitialized = false;
 
   /// Initialize the service
   Future<void> init() async {
+    if (_isInitialized) return; // Prevent double initialization
     _prefs = await SharedPreferences.getInstance();
+    _isInitialized = true;
     print('PlaybackStateService: Initialized');
   }
 

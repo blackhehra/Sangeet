@@ -72,12 +72,12 @@ class _LikedSongsPageState extends ConsumerState<LikedSongsPage> {
   void _showSortOptions() {
     showModalBottomSheet(
       context: context,
-      useRootNavigator: true,
+      useRootNavigator: true, // Use root navigator to appear above mini player
       backgroundColor: AppTheme.darkCard,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (context) => SafeArea(
+      builder: (sheetContext) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -103,16 +103,19 @@ class _LikedSongsPageState extends ConsumerState<LikedSongsPage> {
             ),
             const Gap(8),
             _buildSortOption(
+              sheetContext,
               'Recently Added',
               SortOption.recentlyAdded,
               Iconsax.clock,
             ),
             _buildSortOption(
+              sheetContext,
               'Title',
               SortOption.title,
               Iconsax.music_circle,
             ),
             _buildSortOption(
+              sheetContext,
               'Artist',
               SortOption.artist,
               Iconsax.microphone,
@@ -124,7 +127,7 @@ class _LikedSongsPageState extends ConsumerState<LikedSongsPage> {
     );
   }
 
-  Widget _buildSortOption(String label, SortOption option, IconData icon) {
+  Widget _buildSortOption(BuildContext sheetContext, String label, SortOption option, IconData icon) {
     final isSelected = _currentSort == option;
     String displayLabel = label;
     
@@ -155,24 +158,30 @@ class _LikedSongsPageState extends ConsumerState<LikedSongsPage> {
             )
           : null,
       onTap: () {
+        // Store sort values before closing
+        final newSort = option;
+        final shouldToggleTitle = _currentSort == option && option == SortOption.title;
+        final shouldToggleArtist = _currentSort == option && option == SortOption.artist;
+        
+        // Close the bottom sheet using root navigator (matches useRootNavigator: true)
+        Navigator.of(sheetContext, rootNavigator: true).pop();
+        
+        // Then update state after the sheet is closed
         setState(() {
-          if (_currentSort == option) {
-            if (option == SortOption.title) {
-              _titleAscending = !_titleAscending;
-            } else if (option == SortOption.artist) {
-              _artistAscending = !_artistAscending;
-            }
+          if (shouldToggleTitle) {
+            _titleAscending = !_titleAscending;
+          } else if (shouldToggleArtist) {
+            _artistAscending = !_artistAscending;
           } else {
-            _currentSort = option;
-            if (option == SortOption.title) {
+            _currentSort = newSort;
+            if (newSort == SortOption.title) {
               _titleAscending = true;
-            } else if (option == SortOption.artist) {
+            } else if (newSort == SortOption.artist) {
               _artistAscending = true;
             }
           }
           _sortSongs();
         });
-        Navigator.pop(context);
       },
     );
   }

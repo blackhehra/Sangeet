@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:sangeet/main.dart' show initializeHeavyServices;
 
 class SplashVideoPage extends StatefulWidget {
   final Widget child;
@@ -109,6 +110,10 @@ class _SplashVideoPageState extends State<SplashVideoPage> {
         _showSplash = false;
       });
       widget.onComplete?.call();
+      
+      // Initialize heavy services after splash completes
+      // This defers CPU-intensive work (Hetu bytecode) to after video codec is done
+      initializeHeavyServices();
     }
   }
 

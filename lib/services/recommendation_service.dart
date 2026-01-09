@@ -19,9 +19,12 @@ class RecommendationService {
 
   SharedPreferences? _prefs;
   final Random _random = Random();
+  bool _isInitialized = false;
 
   Future<void> init() async {
+    if (_isInitialized) return; // Prevent double initialization
     _prefs = await SharedPreferences.getInstance();
+    _isInitialized = true;
     print('RecommendationService: Initialized');
   }
 

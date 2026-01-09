@@ -9,6 +9,7 @@ import 'package:sliding_up_panel/sliding_up_panel.dart';
 import 'package:sangeet/core/theme/app_theme.dart';
 import 'package:sangeet/shared/providers/audio_provider.dart';
 import 'package:sangeet/shared/providers/bluetooth_provider.dart';
+import 'package:sangeet/shared/providers/player_dismiss_provider.dart';
 import 'package:sangeet/shared/widgets/playing_indicator.dart';
 import 'package:sangeet/services/audio_player_service.dart';
 import 'package:sangeet/services/play_history_service.dart';
@@ -20,6 +21,8 @@ import 'package:sangeet/features/playlist/widgets/add_to_playlist_dialog.dart';
 import 'package:sangeet/features/player/widgets/player_artist_section.dart';
 import 'package:sangeet/features/lyrics/widgets/lyrics_mini_card.dart';
 import 'package:sangeet/shared/widgets/marquee_text.dart';
+import 'package:sangeet/services/custom_playlist_service.dart';
+import 'package:sangeet/shared/providers/custom_playlist_provider.dart';
 
 class PlayerPage extends ConsumerStatefulWidget {
   final ScrollController? scrollController;
@@ -35,9 +38,15 @@ class PlayerPage extends ConsumerStatefulWidget {
   ConsumerState<PlayerPage> createState() => _PlayerPageState();
 }
 
-class _PlayerPageState extends ConsumerState<PlayerPage> {
+class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProviderStateMixin {
   bool _isLiked = false;
   Track? _currentTrack;
+  
+  // Animation for automatic song change cascade effect
+  AnimationController? _cascadeAnimationController;
+  Animation<double>? _cascadeAnimation;
+  int _animationDirection = 0; // -1 = from right (next), 1 = from left (prev)
+  String? _previousTrackId;
   
   // Double-tap to like animation
   bool _showLikeAnimation = false;
@@ -49,14 +58,57 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   Timer? _volumeHoldTimer;
   bool _showVolumeIndicator = false;
   
+  // Swipe to change song - with gesture disambiguation
+  double _swipeOffset = 0.0;
+  bool _isSwiping = false;
+  int _pendingSwipeDirection = 0; // -1 = prev, 0 = none, 1 = next
+  
+  // Gesture disambiguation - detect intent before committing
+  Offset? _gestureStartPoint;
+  bool _gestureDirectionDecided = false;
+  bool _isHorizontalGesture = false;
+  static const double _gestureDecisionThreshold = 15.0; // Pixels to move before deciding direction
+  
   @override
   void initState() {
     super.initState();
+    _initCascadeAnimation();
+  }
+  
+  void _initCascadeAnimation() {
+    _cascadeAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 400),
+      vsync: this,
+    );
+    _cascadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _cascadeAnimationController!,
+        curve: Curves.easeOutQuart,
+      ),
+    );
+    _cascadeAnimationController!.addListener(() {
+      setState(() {});
+    });
+    _cascadeAnimationController!.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        _animationDirection = 0;
+        _cascadeAnimationController!.reset();
+      }
+    });
+  }
+  
+  /// Trigger cascade animation for song change
+  /// direction: 1 = next song (slide from right), -1 = previous song (slide from left)
+  void _triggerCascadeAnimation(int direction) {
+    if (_cascadeAnimationController == null) return;
+    _animationDirection = direction;
+    _cascadeAnimationController!.forward(from: 0.0);
   }
   
   @override
   void dispose() {
     _volumeHoldTimer?.cancel();
+    _cascadeAnimationController?.dispose();
     super.dispose();
   }
   
@@ -172,6 +224,238 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     final secs = (duration.inSeconds % 60).toString().padLeft(2, '0');
     return '$mins:$secs';
   }
+  
+  /// Build swipeable album art with iOS-style stacked cascade effect
+  /// position: -1 = previous (left), 0 = current (center), 1 = next (right)
+  /// Effect: Pages stack behind each other like cards in a deck
+  Widget _buildSwipeableAlbumArt({
+    required BuildContext context,
+    required Track track,
+    required Size size,
+    required int position,
+    required double swipeOffset,
+    required bool buffering,
+    required AudioPlayerService audioService,
+    bool showOverlays = false,
+  }) {
+    final artSize = size.width * 0.75;
+    final screenWidth = size.width;
+    
+    // iOS-style stacked cascade effect
+    // Current page slides with finger, adjacent pages peek from behind
+    
+    // Combine manual swipe offset with automatic animation
+    double effectiveSwipeOffset = swipeOffset;
+    
+    // Apply automatic cascade animation when song changes via buttons/auto-play
+    if (_animationDirection != 0 && _cascadeAnimation != null) {
+      final animValue = _cascadeAnimation!.value;
+      // Animate from edge to center (reverse of swipe direction)
+      // direction 1 = next song, animate current sliding out to left
+      // direction -1 = prev song, animate current sliding out to right
+      final animOffset = screenWidth * 0.5 * (1.0 - animValue) * _animationDirection;
+      effectiveSwipeOffset = animOffset;
+    }
+    
+    // Normalize swipe progress (-1 to 1, where 1 = full swipe to next)
+    final swipeProgress = (effectiveSwipeOffset / (screenWidth * 0.4)).clamp(-1.0, 1.0);
+    
+    double translateX;
+    double scale;
+    double opacity;
+    
+    if (position == 0) {
+      // Current/center card - moves with swipe or animation
+      translateX = effectiveSwipeOffset;
+      // During animation, scale down slightly as it "arrives"
+      if (_animationDirection != 0 && _cascadeAnimation != null) {
+        final animValue = _cascadeAnimation!.value;
+        scale = 0.9 + (animValue * 0.1); // 0.9 -> 1.0
+        opacity = 0.7 + (animValue * 0.3); // 0.7 -> 1.0
+      } else {
+        scale = 1.0;
+        opacity = 1.0;
+      }
+    } else if (position == -1) {
+      // Previous card (left)
+      // Visible when idle OR when swiping RIGHT, fades out smoothly when swiping LEFT
+      if (effectiveSwipeOffset < 0) {
+        // Swiping left - smoothly fade out previous card
+        final fadeProgress = (-swipeProgress).clamp(0.0, 1.0);
+        scale = 0.85 - (fadeProgress * 0.1); // 0.85 -> 0.75
+        opacity = 0.6 * (1.0 - fadeProgress); // 0.6 -> 0.0
+        translateX = -artSize * 0.3 - (fadeProgress * artSize * 0.2); // Slide further left
+      } else if (effectiveSwipeOffset > 0) {
+        // Swiping right - show previous card emerging from left
+        final progress = swipeProgress.clamp(0.0, 1.0);
+        scale = 0.85 + (progress * 0.15); // 0.85 -> 1.0
+        opacity = 0.6 + (progress * 0.4); // 0.6 -> 1.0
+        translateX = -artSize * 0.3 + (progress * artSize * 0.3);
+      } else {
+        // Idle (no swipe) - show peeking from left at base state
+        scale = 0.85;
+        opacity = 0.6;
+        translateX = -artSize * 0.3;
+      }
+    } else {
+      // Next card (right)
+      // Visible when idle OR when swiping LEFT, fades out smoothly when swiping RIGHT
+      if (effectiveSwipeOffset > 0) {
+        // Swiping right - smoothly fade out next card
+        final fadeProgress = swipeProgress.clamp(0.0, 1.0);
+        scale = 0.85 - (fadeProgress * 0.1); // 0.85 -> 0.75
+        opacity = 0.6 * (1.0 - fadeProgress); // 0.6 -> 0.0
+        translateX = artSize * 0.3 + (fadeProgress * artSize * 0.2); // Slide further right
+      } else if (effectiveSwipeOffset < 0) {
+        // Swiping left - show next card emerging from right
+        final progress = (-swipeProgress).clamp(0.0, 1.0);
+        scale = 0.85 + (progress * 0.15); // 0.85 -> 1.0
+        opacity = 0.6 + (progress * 0.4); // 0.6 -> 1.0
+        translateX = artSize * 0.3 - (progress * artSize * 0.3);
+      } else {
+        // Idle (no swipe) - show peeking from right at base state
+        scale = 0.85;
+        opacity = 0.6;
+        translateX = artSize * 0.3;
+      }
+    }
+    
+    return Transform(
+      alignment: Alignment.center,
+      transform: Matrix4.identity()
+        ..translate(translateX, 0.0, 0.0)
+        ..scale(scale, scale, 1.0),
+      child: GestureDetector(
+        onDoubleTap: showOverlays ? () => _handleDoubleTap(track) : null,
+        onLongPressStart: showOverlays ? _handleLongPressStart : null,
+        onLongPressMoveUpdate: showOverlays 
+            ? (details) => _handleLongPressMoveUpdate(details, audioService) 
+            : null,
+        onLongPressEnd: showOverlays ? _handleLongPressEnd : null,
+        child: Container(
+          width: artSize,
+          height: artSize,
+          foregroundDecoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: Colors.black.withValues(alpha: 1.0 - opacity),
+          ),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.5 * opacity),
+                blurRadius: 25,
+                offset: const Offset(0, 10),
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Stack(
+              children: [
+                CachedNetworkImage(
+                  imageUrl: _getHighQualityThumbnail(track.thumbnailUrl ?? ''),
+                  width: artSize,
+                  height: artSize,
+                  fit: BoxFit.cover,
+                  memCacheWidth: 1080,
+                  memCacheHeight: 1080,
+                  maxWidthDiskCache: 1080,
+                  maxHeightDiskCache: 1080,
+                  errorWidget: (context, url, error) => CachedNetworkImage(
+                    imageUrl: _getFallbackThumbnail(url),
+                    width: artSize,
+                    height: artSize,
+                    fit: BoxFit.cover,
+                    memCacheWidth: 720,
+                    memCacheHeight: 720,
+                    errorWidget: (context, url, error) => Container(
+                      color: AppTheme.darkCard,
+                      child: const Icon(
+                        Iconsax.music,
+                        size: 80,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
+                ),
+                // Buffering indicator (only for current track)
+                if (showOverlays && buffering)
+                  Container(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    child: const Center(
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
+                      ),
+                    ),
+                  ),
+                // Double-tap like animation (only for current track)
+                if (showOverlays && _showLikeAnimation)
+                  Center(
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0.0, end: 1.0),
+                      duration: const Duration(milliseconds: 400),
+                      builder: (context, value, child) {
+                        final iconOpacity = value > 0.8 ? (1.0 - value) * 5 : 1.0;
+                        final baseColor = _isLiked ? AppTheme.primaryColor : Colors.white;
+                        return Transform.scale(
+                          scale: 0.5 + (value * 0.5),
+                          child: Icon(
+                            _isLiked ? Iconsax.heart5 : Iconsax.heart,
+                            size: 100,
+                            color: baseColor.withValues(alpha: iconOpacity),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                // Volume indicator overlay (only for current track)
+                if (showOverlays && _showVolumeIndicator)
+                  Container(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _currentVolume > 0.5 
+                                ? Iconsax.volume_high5 
+                                : _currentVolume > 0 
+                                    ? Iconsax.volume_low_15 
+                                    : Iconsax.volume_slash5,
+                            size: 48,
+                            color: Colors.white,
+                          ),
+                          const Gap(8),
+                          Text(
+                            '${(_currentVolume * 100).toInt()}%',
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const Gap(8),
+                          SizedBox(
+                            width: 150,
+                            child: LinearProgressIndicator(
+                              value: _currentVolume,
+                              backgroundColor: Colors.grey.shade700,
+                              valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildDeviceButton(BuildContext context) {
     final connectedDeviceAsync = ref.watch(connectedAudioDeviceProvider);
@@ -217,8 +501,21 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
           );
         }
 
-        // Update like status when track changes
+        // Update like status and trigger cascade animation when track changes
         if (_currentTrack?.id != track.id) {
+          // Determine animation direction based on queue position
+          if (_previousTrackId != null && !_isSwiping) {
+            final prevIndex = audioService.queue.indexWhere((t) => t.id == _previousTrackId);
+            final currentIndex = audioService.currentIndex;
+            if (prevIndex >= 0 && prevIndex != currentIndex) {
+              // Trigger cascade animation: 1 = next (came from left), -1 = prev (came from right)
+              final direction = currentIndex > prevIndex ? 1 : -1;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _triggerCascadeAnimation(direction);
+              });
+            }
+          }
+          _previousTrackId = _currentTrack?.id;
           _currentTrack = track;
           _isLiked = PlayHistoryService.instance.isLiked(track.id);
         }
@@ -248,9 +545,17 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
               ),
             ),
             child: SafeArea(
-              child: SingleChildScrollView(
-                controller: widget.scrollController,
-                physics: const ClampingScrollPhysics(),
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (notification) {
+                  // Block scroll if horizontal gesture is active on album art
+                  if (_isSwiping) {
+                    return true; // Consume the notification, prevent scroll
+                  }
+                  return false; // Allow normal scroll
+                },
+                child: SingleChildScrollView(
+                  controller: widget.scrollController,
+                  physics: _isSwiping ? const NeverScrollableScrollPhysics() : const ClampingScrollPhysics(),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
                       minHeight: size.height - MediaQuery.of(context).padding.top - MediaQuery.of(context).padding.bottom,
@@ -352,128 +657,139 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                   
                   const Gap(24),
                   
-                  // Album Art - with double-tap to like and volume gesture
-                  GestureDetector(
-                    onDoubleTap: () => _handleDoubleTap(track),
-                    onLongPressStart: _handleLongPressStart,
-                    onLongPressMoveUpdate: (details) => _handleLongPressMoveUpdate(details, audioService),
-                    onLongPressEnd: _handleLongPressEnd,
-                    child: Container(
-                      width: size.width * 0.75,
+                  // Album Art - Swipeable with cascade transition
+                  // Uses Listener for gesture disambiguation like Spotify
+                  // Detects swipe direction intent before committing to horizontal or vertical
+                  Listener(
+                    onPointerDown: (event) {
+                      // Record start point for gesture disambiguation
+                      _gestureStartPoint = event.position;
+                      _gestureDirectionDecided = false;
+                      _isHorizontalGesture = false;
+                      // Block panel initially until we determine direction
+                      ref.read(isAlbumArtSwipingProvider.notifier).state = true;
+                    },
+                    onPointerMove: (event) {
+                      if (_gestureStartPoint == null) return;
+                      
+                      final delta = event.position - _gestureStartPoint!;
+                      
+                      // If direction not yet decided, check if we've moved enough to decide
+                      if (!_gestureDirectionDecided) {
+                        final totalMovement = delta.distance;
+                        if (totalMovement >= _gestureDecisionThreshold) {
+                          _gestureDirectionDecided = true;
+                          
+                          // Check if movement is primarily vertical (downward) with minimal horizontal
+                          // Panel swipe only allowed if Y movement is dominant AND moving down
+                          final isVerticalDown = delta.dy > 0 && delta.dy.abs() > delta.dx.abs() * 2;
+                          
+                          if (isVerticalDown) {
+                            // Pure vertical down swipe - allow panel to handle it
+                            _isHorizontalGesture = false;
+                            ref.read(isAlbumArtSwipingProvider.notifier).state = false;
+                          } else {
+                            // Any horizontal movement or upward - treat as song swipe
+                            _isHorizontalGesture = true;
+                            setState(() {
+                              _isSwiping = true;
+                              _swipeOffset = delta.dx;
+                              _pendingSwipeDirection = 0;
+                            });
+                          }
+                        }
+                      } else if (_isHorizontalGesture) {
+                        // Continue horizontal swipe
+                        setState(() {
+                          _swipeOffset = delta.dx;
+                          // Determine pending direction based on swipe threshold
+                          if (_swipeOffset > 80) {
+                            _pendingSwipeDirection = -1; // Will go to previous
+                          } else if (_swipeOffset < -80) {
+                            _pendingSwipeDirection = 1; // Will go to next
+                          } else {
+                            _pendingSwipeDirection = 0;
+                          }
+                        });
+                      }
+                    },
+                    onPointerUp: (event) {
+                      // Re-enable panel dragging
+                      ref.read(isAlbumArtSwipingProvider.notifier).state = false;
+                      
+                      if (_isHorizontalGesture) {
+                        // Change song if threshold met
+                        if (_pendingSwipeDirection == 1) {
+                          audioService.skipToNext();
+                        } else if (_pendingSwipeDirection == -1) {
+                          audioService.skipToPrevious();
+                        }
+                      }
+                      // Reset all state
+                      setState(() {
+                        _isSwiping = false;
+                        _swipeOffset = 0.0;
+                        _pendingSwipeDirection = 0;
+                      });
+                      _gestureStartPoint = null;
+                      _gestureDirectionDecided = false;
+                      _isHorizontalGesture = false;
+                    },
+                    onPointerCancel: (event) {
+                      // Re-enable panel dragging on cancel
+                      ref.read(isAlbumArtSwipingProvider.notifier).state = false;
+                      setState(() {
+                        _isSwiping = false;
+                        _swipeOffset = 0.0;
+                        _pendingSwipeDirection = 0;
+                      });
+                      _gestureStartPoint = null;
+                      _gestureDirectionDecided = false;
+                      _isHorizontalGesture = false;
+                    },
+                    child: SizedBox(
+                      width: size.width,
                       height: size.width * 0.75,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.4),
-                            blurRadius: 30,
-                            offset: const Offset(0, 10),
+                      child: Stack(
+                        alignment: Alignment.center,
+                        clipBehavior: Clip.none,
+                        children: [
+                          // Previous track (left side) - from queue
+                          if (audioService.currentIndex > 0)
+                            _buildSwipeableAlbumArt(
+                              context: context,
+                              track: audioService.queue[audioService.currentIndex - 1],
+                              size: size,
+                              position: -1, // Left
+                              swipeOffset: _swipeOffset,
+                              buffering: false,
+                              audioService: audioService,
+                            ),
+                          
+                          // Next track (right side) - from queue
+                          if (audioService.currentIndex < audioService.queue.length - 1)
+                            _buildSwipeableAlbumArt(
+                              context: context,
+                              track: audioService.queue[audioService.currentIndex + 1],
+                              size: size,
+                              position: 1, // Right
+                              swipeOffset: _swipeOffset,
+                              buffering: false,
+                              audioService: audioService,
+                            ),
+                          
+                          // Current track (center) - always on top
+                          _buildSwipeableAlbumArt(
+                            context: context,
+                            track: track,
+                            size: size,
+                            position: 0, // Center
+                            swipeOffset: _swipeOffset,
+                            buffering: buffering,
+                            audioService: audioService,
+                            showOverlays: true,
                           ),
                         ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Stack(
-                          children: [
-                            CachedNetworkImage(
-                              imageUrl: _getHighQualityThumbnail(track.thumbnailUrl ?? ''),
-                              width: size.width * 0.75,
-                              height: size.width * 0.75,
-                              fit: BoxFit.cover,
-                              memCacheWidth: 1080,
-                              memCacheHeight: 1080,
-                              maxWidthDiskCache: 1080,
-                              maxHeightDiskCache: 1080,
-                              // Fallback to hqdefault if maxresdefault fails
-                              errorWidget: (context, url, error) => CachedNetworkImage(
-                                imageUrl: _getFallbackThumbnail(url),
-                                width: size.width * 0.75,
-                                height: size.width * 0.75,
-                                fit: BoxFit.cover,
-                                memCacheWidth: 720,
-                                memCacheHeight: 720,
-                                errorWidget: (context, url, error) => Container(
-                                  color: AppTheme.darkCard,
-                                  child: const Icon(
-                                    Iconsax.music,
-                                    size: 80,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            // Buffering indicator
-                            if (buffering)
-                              Container(
-                                color: Colors.black.withOpacity(0.3),
-                                child: const Center(
-                                  child: CircularProgressIndicator(
-                                    valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
-                                  ),
-                                ),
-                              ),
-                            // Double-tap like animation
-                            if (_showLikeAnimation)
-                              Center(
-                                child: TweenAnimationBuilder<double>(
-                                  tween: Tween(begin: 0.0, end: 1.0),
-                                  duration: const Duration(milliseconds: 400),
-                                  builder: (context, value, child) {
-                                    return Transform.scale(
-                                      scale: 0.5 + (value * 0.5),
-                                      child: Opacity(
-                                        opacity: value > 0.8 ? (1.0 - value) * 5 : 1.0,
-                                        child: Icon(
-                                          _isLiked ? Iconsax.heart5 : Iconsax.heart,
-                                          size: 100,
-                                          color: _isLiked ? AppTheme.primaryColor : Colors.white,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                            // Volume indicator overlay
-                            if (_showVolumeIndicator)
-                              Container(
-                                color: Colors.black.withOpacity(0.5),
-                                child: Center(
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        _currentVolume > 0.5 
-                                            ? Iconsax.volume_high5 
-                                            : _currentVolume > 0 
-                                                ? Iconsax.volume_low_15 
-                                                : Iconsax.volume_slash5,
-                                        size: 48,
-                                        color: Colors.white,
-                                      ),
-                                      const Gap(8),
-                                      Text(
-                                        '${(_currentVolume * 100).toInt()}%',
-                                        style: const TextStyle(
-                                          fontSize: 24,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                      const Gap(8),
-                                      SizedBox(
-                                        width: 150,
-                                        child: LinearProgressIndicator(
-                                          value: _currentVolume,
-                                          backgroundColor: Colors.grey.shade700,
-                                          valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
                       ),
                     ),
                   ),
@@ -730,6 +1046,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                     ),
                   ),
                 ),
+              ),
               ),
             ),
           );
@@ -1208,14 +1525,29 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                 return;
               }
               
-              // Import the custom playlist service and save
-              // This would integrate with your existing playlist system
-              Navigator.pop(context);
-              Navigator.pop(context); // Close queue sheet too
-              
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Playlist "$name" created with ${queue.length} tracks')),
-              );
+              // Create playlist and add all tracks from queue
+              try {
+                final playlistNotifier = ref.read(customPlaylistsProvider.notifier);
+                final playlist = await playlistNotifier.createPlaylist(name: name);
+                
+                // Add all tracks to the playlist
+                await CustomPlaylistService.instance.addTracksToPlaylist(playlist.id, queue);
+                
+                // Refresh the provider state
+                playlistNotifier.refresh();
+                
+                Navigator.pop(context);
+                Navigator.pop(context); // Close queue sheet too
+                
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Playlist "$name" created with ${queue.length} tracks')),
+                );
+              } catch (e) {
+                print('Error saving queue as playlist: $e');
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Failed to save playlist: $e')),
+                );
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.primaryColor,

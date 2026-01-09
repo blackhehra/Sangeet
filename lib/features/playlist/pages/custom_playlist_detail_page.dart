@@ -43,8 +43,8 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
     
     switch (_currentSort) {
       case SortOption.recentlyAdded:
-        // Reverse order so most recently added appears first
-        _sortedTracks = _sortedTracks.reversed.toList();
+        // Keep original order (tracks are stored in the order they were added)
+        // No sorting needed - first added appears first
         break;
       case SortOption.title:
         _sortedTracks.sort((a, b) {
@@ -64,14 +64,14 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
   void _showSortOptions() {
     showModalBottomSheet(
       context: context,
-      useRootNavigator: true,
+      useRootNavigator: true, // Use root navigator to appear above mini player
       backgroundColor: AppTheme.darkCard,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       isScrollControlled: true,
       barrierColor: Colors.black54,
-      builder: (context) => Container(
+      builder: (sheetContext) => Container(
         padding: const EdgeInsets.symmetric(vertical: 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -88,16 +88,19 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
             ),
             const Divider(),
             _buildSortOption(
+              sheetContext,
               'Recently Added',
               SortOption.recentlyAdded,
               Iconsax.clock,
             ),
             _buildSortOption(
+              sheetContext,
               'Title',
               SortOption.title,
               Iconsax.music_circle,
             ),
             _buildSortOption(
+              sheetContext,
               'Artist',
               SortOption.artist,
               Iconsax.microphone,
@@ -109,7 +112,7 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
     );
   }
 
-  Widget _buildSortOption(String label, SortOption option, IconData icon) {
+  Widget _buildSortOption(BuildContext sheetContext, String label, SortOption option, IconData icon) {
     final isSelected = _currentSort == option;
     String displayLabel = label;
     
@@ -140,23 +143,29 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
             )
           : null,
       onTap: () {
+        // Store the sort values before closing
+        final newSort = option;
+        final shouldToggleTitle = _currentSort == option && option == SortOption.title;
+        final shouldToggleArtist = _currentSort == option && option == SortOption.artist;
+        
+        // Close the bottom sheet using root navigator (matches useRootNavigator: true)
+        Navigator.of(sheetContext, rootNavigator: true).pop();
+        
+        // Then update state after the sheet is closed
         setState(() {
-          if (_currentSort == option) {
-            if (option == SortOption.title) {
-              _titleAscending = !_titleAscending;
-            } else if (option == SortOption.artist) {
-              _artistAscending = !_artistAscending;
-            }
+          if (shouldToggleTitle) {
+            _titleAscending = !_titleAscending;
+          } else if (shouldToggleArtist) {
+            _artistAscending = !_artistAscending;
           } else {
-            _currentSort = option;
-            if (option == SortOption.title) {
+            _currentSort = newSort;
+            if (newSort == SortOption.title) {
               _titleAscending = true;
-            } else if (option == SortOption.artist) {
+            } else if (newSort == SortOption.artist) {
               _artistAscending = true;
             }
           }
         });
-        Navigator.pop(context);
       },
     );
   }

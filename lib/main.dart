@@ -163,21 +163,16 @@ void main(List<String> args) async {
       print('Notification permission request failed: $e');
     }
     
-    // Initialize Spotify Plugin
-    try {
-      await SpotifyPluginService.initialize(navigatorKey: rootNavigatorKey);
-      print('SpotifyPlugin: Initialized successfully');
-    } catch (e, stack) {
-      print('SpotifyPlugin: Failed to initialize: $e');
-      print(stack);
-    }
-    
-    // Initialize Deep Link Handler for sharing
+    // Initialize Deep Link Handler for sharing (lightweight, can run during splash)
     DeepLinkHandlerService.instance.init(navigatorKey: rootNavigatorKey).then((_) {
       print('DeepLinkHandlerService: Initialized');
     }).catchError((e) {
       print('DeepLinkHandlerService: Init failed: $e');
     });
+    
+    // NOTE: SpotifyPlugin initialization is deferred to after splash video
+    // to prioritize video codec and reduce startup lag.
+    // See initializeHeavyServices() which is called from SplashVideoPage.onComplete
     
     // Set system UI overlay style
     SystemChrome.setSystemUIOverlayStyle(
@@ -233,6 +228,20 @@ void main(List<String> args) async {
     // Print other errors
     print('App Error: $error');
   });
+}
+
+/// Initialize heavy services after splash video completes
+/// This defers CPU-intensive work (like Hetu bytecode compilation) to after
+/// the video codec has finished, preventing video lag during splash
+Future<void> initializeHeavyServices() async {
+  // Initialize Spotify Plugin (heavy - loads Hetu bytecode)
+  try {
+    await SpotifyPluginService.initialize(navigatorKey: rootNavigatorKey);
+    print('SpotifyPlugin: Initialized successfully');
+  } catch (e, stack) {
+    print('SpotifyPlugin: Failed to initialize: $e');
+    print(stack);
+  }
 }
 
 /// Custom HttpOverrides to bypass SSL certificate verification on desktop

@@ -13,9 +13,12 @@ class WrappedService {
 
   static const String _wrappedCacheKey = 'wrapped_data';
   SharedPreferences? _prefs;
+  bool _isInitialized = false;
 
   Future<void> init() async {
+    if (_isInitialized) return; // Prevent double initialization
     _prefs = await SharedPreferences.getInstance();
+    _isInitialized = true;
     print('WrappedService: Initialized');
   }
 

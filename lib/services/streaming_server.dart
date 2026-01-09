@@ -470,8 +470,27 @@ class StreamingServer {
     // Check cache first
     final cached = _streamCache[videoId];
     if (cached != null && !cached.isExpired) {
-      print('StreamingServer: Using cached stream URL');
-      return true;
+      // Validate cached URL is still working (quick HEAD request)
+      try {
+        final headResponse = await _dio.head(
+          cached.url,
+          options: dio_lib.Options(
+            headers: {'User-Agent': cached.userAgent},
+            validateStatus: (status) => status != null && status < 500,
+            receiveTimeout: const Duration(seconds: 3),
+          ),
+        );
+        if (headResponse.statusCode == 403) {
+          print('StreamingServer: Cached URL returned 403, refreshing...');
+          _streamCache.remove(videoId);
+        } else {
+          print('StreamingServer: Using cached stream URL (validated)');
+          return true;
+        }
+      } catch (e) {
+        print('StreamingServer: Cached URL validation failed: $e, refreshing...');
+        _streamCache.remove(videoId);
+      }
     }
     
     // Use youtube_explode directly - ANDROID_VR is most reliable
@@ -483,7 +502,9 @@ class StreamingServer {
           url: result.url,
           userAgent: result.userAgent,
           contentLength: result.contentLength,
-          expiresAt: DateTime.now().add(const Duration(hours: 5)),
+          // Reduced from 5 hours to 3 hours - YouTube URLs can become stale
+          // earlier due to network conditions or server-side changes
+          expiresAt: DateTime.now().add(const Duration(hours: 3)),
         );
         
         final elapsed = DateTime.now().difference(startTime).inMilliseconds;
@@ -925,6 +946,8 @@ class StreamingServer {
       final cachedPath = await _audioCache.getCachedPath(videoId);
       if (cachedPath != null) {
         print('StreamingServer: Serving from disk cache');
+        // Clear URL cache since we have disk cache - prevents stale URL issues
+        _streamCache.remove(videoId);
         final file = File(cachedPath);
         if (await file.exists()) {
           final fileLength = await file.length();
@@ -1001,16 +1024,14 @@ class StreamingServer {
       
       print('StreamingServer: YouTube response: ${response.statusCode}');
       
-      // If 403, clear cache and retry once
+      // If 403, clear cache and return error - let player handle retry
+      // Don't recursively retry here as it can interrupt mid-stream playback
       if (response.statusCode == 403) {
-        print('StreamingServer: Got 403, clearing cache and retrying...');
+        print('StreamingServer: Got 403, clearing cache for next request');
         _streamCache.remove(videoId);
-        final success = await prefetchStream(videoId);
-        if (!success) {
-          return shelf.Response(403, body: 'Stream unavailable');
-        }
-        // Recursive call with fresh cache
-        return _handleStreamRequest(request, videoId);
+        // Return 403 to signal player to refresh stream on next attempt
+        // This prevents mid-stream interruption from recursive retry
+        return shelf.Response(403, body: 'Stream URL expired - will refresh on next request');
       }
       
       // Forward response
@@ -1027,8 +1048,9 @@ class StreamingServer {
         return shelf.Response.internalServerError(body: 'No stream data');
       }
       
-      // Cache audio to disk in background - only for full requests (no range)
-      if (rangeHeader == null && cached.contentLength != null) {
+      // Cache audio to disk in background - for all requests (including range)
+      // This ensures songs get cached even when media_kit uses range requests
+      if (cached.contentLength != null && !(await _audioCache.isCached(videoId))) {
         _cacheAudioInBackground(videoId, cached.url, cached.userAgent);
       }
       

@@ -18,6 +18,7 @@ class ListeningStatsService {
   static const String _genreStatsKey = 'genre_listening_stats';
 
   SharedPreferences? _prefs;
+  bool _isInitialized = false;
   
   // Stats maps
   Map<String, TrackStats> _allTimeTrackStats = {};
@@ -29,8 +30,10 @@ class ListeningStatsService {
   
   /// Initialize the service
   Future<void> init() async {
+    if (_isInitialized) return; // Prevent double initialization
     _prefs = await SharedPreferences.getInstance();
     await _loadStats();
+    _isInitialized = true;
     print('ListeningStatsService: Initialized');
   }
 

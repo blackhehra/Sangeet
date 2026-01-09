@@ -1620,6 +1620,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
             ),
             child: const Text('Save'),
           ),

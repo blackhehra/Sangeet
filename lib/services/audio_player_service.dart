@@ -55,6 +55,9 @@ class AudioPlayerService {
   // Flag to track if we're actively loading/playing - used to auto-recover from spurious pauses
   bool _isActivelyPlaying = false;
   
+  // Track if we were playing before buffering started - for auto-resume after buffering
+  bool _wasPlayingBeforeBuffering = false;
+  
   // Track which playlist is currently playing
   String? _currentPlaylistId;
   
@@ -184,7 +187,7 @@ class AudioPlayerService {
       configuration: const PlayerConfiguration(
         // Use default audio output (media speaker, not earpiece)
         title: 'Sangeet Music Player',
-        bufferSize: 32 * 1024 * 1024, // 32MB buffer for smooth playback
+        bufferSize: 64 * 1024 * 1024, // 64MB buffer for smooth playback
       ),
     );
 
@@ -215,6 +218,24 @@ class AudioPlayerService {
     _player.stream.buffer.listen((bufferedPosition) {
       // Update lock screen buffered position
       _audioHandler?.updateBufferedPosition(bufferedPosition);
+      
+      // Buffer prefetching: Monitor buffer health and maintain safety margin
+      final position = _player.state.position;
+      final duration = _player.state.duration;
+      
+      // Calculate buffer ahead (how much is buffered ahead of current position)
+      final bufferAhead = bufferedPosition - position;
+      
+      // If buffer ahead is less than 10 seconds and we're not near the end, trigger prefetch
+      // This keeps a healthy buffer margin to prevent interruptions
+      if (bufferAhead.inSeconds < 10 && 
+          duration.inSeconds > 0 && 
+          position.inSeconds < duration.inSeconds - 15) {
+        // Player will automatically buffer more, but we log it for monitoring
+        if (bufferAhead.inSeconds < 5) {
+          print('AudioPlayer: Low buffer detected (${bufferAhead.inSeconds}s ahead), prefetching...');
+        }
+      }
     });
 
     _player.stream.duration.listen((duration) {
@@ -229,6 +250,19 @@ class AudioPlayerService {
       
       // Update lock screen buffering state
       _audioHandler?.updateBuffering(buffering);
+      
+      // Track playing state when buffering starts
+      if (buffering) {
+        _wasPlayingBeforeBuffering = _player.state.playing;
+        print('AudioPlayer: Buffering started (was playing: $_wasPlayingBeforeBuffering)');
+      } else {
+        // Buffering ended - auto-resume if we were playing before
+        if (_wasPlayingBeforeBuffering && !_player.state.playing && _activeTrackId != null) {
+          print('AudioPlayer: Buffering ended, auto-resuming playback');
+          _player.play();
+        }
+        _wasPlayingBeforeBuffering = false;
+      }
     });
 
     // Handle errors

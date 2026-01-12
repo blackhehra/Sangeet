@@ -78,19 +78,24 @@ class SettingsService extends StateNotifier<AppSettings> {
   }
 
   Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    final qualityStr = prefs.getString(_audioQualityKey);
-    final sourceStr = prefs.getString(_musicSourceKey);
-    
-    state = state.copyWith(
-      audioQuality: qualityStr != null 
-          ? AudioQuality.fromString(qualityStr) 
-          : null,
-      musicSource: sourceStr != null 
-          ? MusicSource.fromString(sourceStr) 
-          : null,
-    );
-    print('SettingsService: Loaded settings - quality: ${state.audioQuality.label}, source: ${state.musicSource.label}');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final qualityStr = prefs.getString(_audioQualityKey);
+      final sourceStr = prefs.getString(_musicSourceKey);
+      
+      state = state.copyWith(
+        audioQuality: qualityStr != null 
+            ? AudioQuality.fromString(qualityStr) 
+            : null,
+        musicSource: sourceStr != null 
+            ? MusicSource.fromString(sourceStr) 
+            : null,
+      );
+      print('SettingsService: Loaded settings - quality: ${state.audioQuality.label}, source: ${state.musicSource.label}');
+    } catch (e) {
+      print('SettingsService: Failed to load settings: $e');
+      // Keep default state on error
+    }
   }
 
   Future<void> setAudioQuality(AudioQuality quality) async {

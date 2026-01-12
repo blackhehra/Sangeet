@@ -145,35 +145,46 @@ class UserPreferencesService extends StateNotifier<UserPreferences> {
   }
 
   Future<void> _loadPreferences() async {
-    final prefs = await SharedPreferences.getInstance();
-    
-    final onboardingCompleted = prefs.getBool(_onboardingKey) ?? false;
-    
-    // Load languages
-    final languagesJson = prefs.getStringList(_languagesKey) ?? [];
-    final languages = languagesJson
-        .map((code) => MusicLanguage.values.firstWhere(
-              (l) => l.code == code,
-              orElse: () => MusicLanguage.hindi,
-            ))
-        .toList();
-    
-    // Load artists
-    final artistsJson = prefs.getString(_artistsKey);
-    List<PreferredArtist> artists = [];
-    if (artistsJson != null) {
-      final List<dynamic> decoded = jsonDecode(artistsJson);
-      artists = decoded.map((e) => PreferredArtist.fromJson(e)).toList();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      final onboardingCompleted = prefs.getBool(_onboardingKey) ?? false;
+      
+      // Load languages
+      final languagesJson = prefs.getStringList(_languagesKey) ?? [];
+      final languages = languagesJson
+          .map((code) => MusicLanguage.values.firstWhere(
+                (l) => l.code == code,
+                orElse: () => MusicLanguage.hindi,
+              ))
+          .toList();
+      
+      // Load artists - wrap in try-catch for corrupted JSON
+      final artistsJson = prefs.getString(_artistsKey);
+      List<PreferredArtist> artists = [];
+      if (artistsJson != null) {
+        try {
+          final List<dynamic> decoded = jsonDecode(artistsJson);
+          artists = decoded.map((e) => PreferredArtist.fromJson(e)).toList();
+        } catch (e) {
+          print('UserPreferences: Failed to parse artists JSON: $e');
+          // Clear corrupted data
+          await prefs.remove(_artistsKey);
+        }
+      }
+      
+      state = UserPreferences(
+        onboardingCompleted: onboardingCompleted,
+        selectedLanguages: languages,
+        selectedArtists: artists,
+      );
+      
+      print('UserPreferences: Loaded - onboarding: $onboardingCompleted, '
+          'languages: ${languages.length}, artists: ${artists.length}');
+    } catch (e) {
+      print('UserPreferences: Failed to load preferences: $e');
+      // Keep default state on error
     }
-    
-    state = UserPreferences(
-      onboardingCompleted: onboardingCompleted,
-      selectedLanguages: languages,
-      selectedArtists: artists,
-    );
-    
-    print('UserPreferences: Loaded - onboarding: $onboardingCompleted, '
-        'languages: ${languages.length}, artists: ${artists.length}');
   }
 
   Future<void> setLanguages(List<MusicLanguage> languages) async {

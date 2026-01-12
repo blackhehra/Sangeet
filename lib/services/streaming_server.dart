@@ -345,6 +345,21 @@ class _AudioDiskCache {
     }
   }
   
+  /// Delete a specific cached file (e.g., when it's corrupted/incomplete)
+  Future<void> delete(String videoId) async {
+    if (_cacheDir == null) return;
+    try {
+      final file = _getCacheFile(videoId);
+      if (await file.exists()) {
+        await file.delete();
+        _accessTimes.remove(videoId);
+        print('AudioDiskCache: Deleted $videoId');
+      }
+    } catch (e) {
+      print('AudioDiskCache: Error deleting $videoId: $e');
+    }
+  }
+  
   /// Set max cache size
   void setMaxSize(int bytes) {
     _maxSizeBytes = bytes;
@@ -365,10 +380,10 @@ class StreamingServer {
   final YoutubeExplode _yt = YoutubeExplode();
   final InnertubeService _innertube = InnertubeService();
   
-  // URL cache for pre-fetched stream URLs - persisted to disk
+  // URL cache for current playback session only (not persisted)
+  // Disk cache handles repeat plays
   final Map<String, _CachedStream> _streamCache = {};
   bool _streamCacheInitialized = false;
-  static const String _streamCacheKey = 'stream_url_cache';
   
   // Audio disk cache with LRU eviction
   final _AudioDiskCache _audioCache = _AudioDiskCache();
@@ -389,60 +404,21 @@ class StreamingServer {
   /// Clear audio cache
   Future<void> clearAudioCache() => _audioCache.clear();
   
+  /// Clear a specific cached stream (e.g., when it's corrupted/incomplete)
+  Future<void> clearCachedStream(String videoId) async {
+    await _audioCache.delete(videoId);
+    _streamCache.remove(videoId);
+  }
+  
   /// Set audio cache max size
   void setAudioCacheMaxSize(int bytes) => _audioCache.setMaxSize(bytes);
   
-  /// Initialize stream URL cache from persistent storage
+  /// Initialize stream cache (no persistence - always use fresh URLs)
+  /// Disk cache handles repeat plays
   Future<void> initStreamCache() async {
     if (_streamCacheInitialized) return;
-    
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final jsonStr = prefs.getString(_streamCacheKey);
-      if (jsonStr != null) {
-        final Map<String, dynamic> data = jsonDecode(jsonStr);
-        int loadedCount = 0;
-        int expiredCount = 0;
-        
-        for (final entry in data.entries) {
-          try {
-            final cached = _CachedStream.fromJson(entry.value as Map<String, dynamic>);
-            if (!cached.isExpired) {
-              _streamCache[entry.key] = cached;
-              loadedCount++;
-            } else {
-              expiredCount++;
-            }
-          } catch (e) {
-            // Skip invalid entries
-          }
-        }
-        print('StreamingServer: Loaded $loadedCount cached stream URLs ($expiredCount expired)');
-      }
-    } catch (e) {
-      print('StreamingServer: Error loading stream cache: $e');
-    }
-    
     _streamCacheInitialized = true;
-  }
-  
-  /// Save stream URL cache to persistent storage
-  Future<void> _saveStreamCache() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final Map<String, dynamic> data = {};
-      
-      // Only save non-expired entries
-      for (final entry in _streamCache.entries) {
-        if (!entry.value.isExpired) {
-          data[entry.key] = entry.value.toJson();
-        }
-      }
-      
-      await prefs.setString(_streamCacheKey, jsonEncode(data));
-    } catch (e) {
-      print('StreamingServer: Error saving stream cache: $e');
-    }
+    print('StreamingServer: Initialized (fresh URLs mode - disk cache for repeat plays)');
   }
   
   /// Set the audio quality for stream selection
@@ -461,55 +437,32 @@ class StreamingServer {
   }
   
   /// Pre-fetch and validate stream URL before playback
+  /// Always fetches fresh URL - disk cache handles repeat plays
   /// Uses youtube_explode directly with ANDROID_VR client (most reliable)
-  /// Innertube clients are skipped as they consistently fail with 403/bot detection
   Future<bool> prefetchStream(String videoId) async {
-    print('StreamingServer: Pre-fetching stream for $videoId');
+    print('StreamingServer: Pre-fetching fresh stream for $videoId');
     final startTime = DateTime.now();
     
-    // Check cache first
-    final cached = _streamCache[videoId];
-    if (cached != null && !cached.isExpired) {
-      // Validate cached URL is still working (quick HEAD request)
-      try {
-        final headResponse = await _dio.head(
-          cached.url,
-          options: dio_lib.Options(
-            headers: {'User-Agent': cached.userAgent},
-            validateStatus: (status) => status != null && status < 500,
-            receiveTimeout: const Duration(seconds: 3),
-          ),
-        );
-        if (headResponse.statusCode == 403) {
-          print('StreamingServer: Cached URL returned 403, refreshing...');
-          _streamCache.remove(videoId);
-        } else {
-          print('StreamingServer: Using cached stream URL (validated)');
-          return true;
-        }
-      } catch (e) {
-        print('StreamingServer: Cached URL validation failed: $e, refreshing...');
-        _streamCache.remove(videoId);
-      }
-    }
+    // Always clear any cached URL to ensure fresh fetch
+    _streamCache.remove(videoId);
     
     // Use youtube_explode directly - ANDROID_VR is most reliable
     // Innertube clients consistently fail with 403 or bot detection
     for (final client in _ytClients) {
       final result = await _tryYoutubeExplodeStream(videoId, client, () => false);
       if (result != null) {
+        // Store URL temporarily for this playback session only
         _streamCache[videoId] = _CachedStream(
           url: result.url,
           userAgent: result.userAgent,
           contentLength: result.contentLength,
-          // Reduced from 5 hours to 3 hours - YouTube URLs can become stale
-          // earlier due to network conditions or server-side changes
-          expiresAt: DateTime.now().add(const Duration(hours: 3)),
+          // Short expiry - URL is only valid for this session
+          // Disk cache will be used for repeat plays
+          expiresAt: DateTime.now().add(const Duration(minutes: 30)),
         );
         
         final elapsed = DateTime.now().difference(startTime).inMilliseconds;
-        print('StreamingServer: Stream ready via ${result.source} in ${elapsed}ms');
-        _saveStreamCache();
+        print('StreamingServer: Fresh stream ready via ${result.source} in ${elapsed}ms');
         return true;
       }
     }
@@ -1118,6 +1071,58 @@ class StreamingServer {
         print('StreamingServer: Background caching failed: $e');
       }
     });
+  }
+  
+  /// Prefetch and cache a track to disk for instant playback
+  /// Used for background prefetching of upcoming tracks
+  Future<bool> prefetchAndCacheTrack(String videoId) async {
+    try {
+      // Check if already cached
+      if (await _audioCache.isCached(videoId)) {
+        print('StreamingServer: Track $videoId already cached');
+        return true;
+      }
+      
+      // Get fresh stream URL
+      final success = await prefetchStream(videoId);
+      if (!success) {
+        print('StreamingServer: Failed to get stream URL for $videoId');
+        return false;
+      }
+      
+      final cached = _streamCache[videoId];
+      if (cached == null) {
+        return false;
+      }
+      
+      // Download and cache to disk
+      print('StreamingServer: Downloading $videoId to disk cache...');
+      final response = await _dio.get<dio_lib.ResponseBody>(
+        cached.url,
+        options: dio_lib.Options(
+          headers: {
+            'User-Agent': cached.userAgent,
+            'Accept': '*/*',
+            'Accept-Encoding': 'identity',
+          },
+          responseType: dio_lib.ResponseType.stream,
+          validateStatus: (status) => status != null && status < 500,
+          followRedirects: true,
+        ),
+      );
+      
+      if (response.statusCode == 200 && response.data?.stream != null) {
+        await _audioCache.cacheFromStream(videoId, response.data!.stream);
+        // Clear URL cache after successful disk cache
+        _streamCache.remove(videoId);
+        return true;
+      }
+      
+      return false;
+    } catch (e) {
+      print('StreamingServer: Error prefetching track $videoId: $e');
+      return false;
+    }
   }
   
   /// Clear cache for a video

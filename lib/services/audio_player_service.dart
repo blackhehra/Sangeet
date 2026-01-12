@@ -42,21 +42,9 @@ class AudioPlayerService {
   // Used to cancel stale background operations (like track matching from old playlists)
   int _playbackSessionId = 0;
   
-  // Track loading ID - incremented each time skipToNext/Previous is called
-  // Used to cancel stale track loading operations when rapidly skipping
-  int _trackLoadingId = 0;
-  
-  // The track loading ID that is currently playing - used to validate completion events
-  int _activeTrackLoadingId = 0;
-  
-  // The actual track ID that successfully started playing - used to validate completion events
-  String? _activeTrackId;
-  
-  // Flag to track if we're actively loading/playing - used to auto-recover from spurious pauses
-  bool _isActivelyPlaying = false;
-  
-  // Track if we were playing before buffering started - for auto-resume after buffering
-  bool _wasPlayingBeforeBuffering = false;
+  // Track when we're seeking to ignore spurious completion events
+  bool _isSeeking = false;
+  DateTime? _lastSeekTime;
   
   // Track which playlist is currently playing
   String? _currentPlaylistId;
@@ -85,6 +73,12 @@ class AudioPlayerService {
   // Last known position/duration for restored tracks (so streams can emit initial value)
   Duration _lastKnownPosition = Duration.zero;
   Duration _lastKnownDuration = Duration.zero;
+  
+  // Seek recovery state - suppress UI changes during recovery
+  bool _isSeekRecovering = false;
+  Duration _seekRecoveryTargetPosition = Duration.zero;
+  DateTime? _lastSeekRecoveryTime; // Track when seek recovery completed to ignore spurious completions
+  Duration _lastSeekTargetPosition = Duration.zero; // Track user's intended seek position for spurious completion recovery
 
   // Getters for streams - emit current value immediately then stream updates
   Stream<Track?> get currentTrackStream async* {
@@ -103,7 +97,10 @@ class AudioPlayerService {
     yield _lastKnownDuration; // Emit last known duration first (for restored tracks)
     yield* _durationController.stream;
   }
-  Stream<bool> get bufferingStream => _bufferingController.stream;
+  Stream<bool> get bufferingStream async* {
+    yield false; // Emit initial non-buffering state
+    yield* _bufferingController.stream;
+  }
   Stream<List<Track>> get queueStream async* {
     yield queue;
     yield* _queueController.stream;
@@ -182,18 +179,44 @@ class AudioPlayerService {
   }
 
   void _init() {
-    // Configure player with proper audio output settings
-    _player = Player(
-      configuration: const PlayerConfiguration(
-        // Use default audio output (media speaker, not earpiece)
-        title: 'Sangeet Music Player',
-        bufferSize: 64 * 1024 * 1024, // 64MB buffer for smooth playback
-      ),
-    );
+    try {
+      // Configure player with proper audio output settings
+      _player = Player(
+        configuration: const PlayerConfiguration(
+          // Use default audio output (media speaker, not earpiece)
+          title: 'Sangeet Music Player',
+          bufferSize: 64 * 1024 * 1024, // 64MB buffer for smooth playback
+        ),
+      );
+    } catch (e, stack) {
+      print('AudioPlayer: CRITICAL - Failed to initialize Player: $e');
+      print('AudioPlayer: Stack: $stack');
+      // Create a fallback player with minimal config
+      _player = Player();
+    }
 
-    // Listen to player state changes
+    // Listen to player state changes - wrap in try-catch to handle rare initialization failures
+    try {
+      _setupPlayerListeners();
+    } catch (e) {
+      print('AudioPlayer: Failed to setup player listeners: $e');
+    }
+    
+    // Start periodic state saving (every 10 seconds while playing)
+    _startStateSaveTimer();
+  }
+  
+  /// Setup all player stream listeners
+  void _setupPlayerListeners() {
     _player.stream.playing.listen((playing) {
       print('AudioPlayer: Playing state changed: $playing');
+      
+      // During seek recovery, suppress pause state to UI (keep showing loading)
+      if (_isSeekRecovering && !playing) {
+        print('AudioPlayer: Suppressing pause during seek recovery');
+        return;
+      }
+      
       _playingController.add(playing);
       
       // Update lock screen notification
@@ -208,6 +231,13 @@ class AudioPlayerService {
     });
 
     _player.stream.position.listen((position) {
+      // During seek recovery, emit the target position instead of actual position
+      // This prevents the seek bar from jumping to 0 and back
+      if (_isSeekRecovering) {
+        _positionController.add(_seekRecoveryTargetPosition);
+        return;
+      }
+      
       _lastKnownPosition = position; // Keep track of last known position
       _positionController.add(position);
       
@@ -240,6 +270,13 @@ class AudioPlayerService {
 
     _player.stream.duration.listen((duration) {
       print('AudioPlayer: Duration changed: $duration');
+      
+      // During seek recovery, suppress duration reset to 0 (keep showing original duration)
+      if (_isSeekRecovering && duration == Duration.zero) {
+        print('AudioPlayer: Suppressing duration reset during seek recovery');
+        return;
+      }
+      
       _lastKnownDuration = duration; // Keep track of last known duration
       _durationController.add(duration);
     });
@@ -250,73 +287,79 @@ class AudioPlayerService {
       
       // Update lock screen buffering state
       _audioHandler?.updateBuffering(buffering);
-      
-      // Track playing state when buffering starts
-      if (buffering) {
-        _wasPlayingBeforeBuffering = _player.state.playing;
-        print('AudioPlayer: Buffering started (was playing: $_wasPlayingBeforeBuffering)');
-      } else {
-        // Buffering ended - auto-resume if we were playing before
-        if (_wasPlayingBeforeBuffering && !_player.state.playing && _activeTrackId != null) {
-          print('AudioPlayer: Buffering ended, auto-resuming playback');
-          _player.play();
-        }
-        _wasPlayingBeforeBuffering = false;
-      }
     });
 
     // Handle errors
-    _player.stream.error.listen((error) {
+    _player.stream.error.listen((error) async {
       print('AudioPlayer: Player error: $error');
+      
+      // Handle corrupted cache file - clear and retry
+      if (error.toString().contains('Failed to recognize file format') ||
+          error.toString().contains('Failed to open')) {
+        if (_currentIndex >= 0 && _currentIndex < _queue.length) {
+          final track = _queue[_currentIndex];
+          print('AudioPlayer: Corrupted cache detected for ${track.title}, clearing and retrying...');
+          await _streamingServer.clearCachedStream(track.id);
+          // Retry playback with fresh stream
+          await _playCurrentTrack();
+        }
+      }
     });
 
     // Handle track completion
-    _player.stream.completed.listen((completed) {
+    _player.stream.completed.listen((completed) async {
       if (completed) {
-        // Validate this completion is for the currently active track
-        // This prevents stale completion events from triggering skipToNext
-        // when rapidly skipping between tracks
-        if (_trackLoadingId != _activeTrackLoadingId) {
-          print('AudioPlayer: Ignoring stale completion event (loading: $_trackLoadingId, active: $_activeTrackLoadingId)');
-          return;
-        }
-        
-        // Validate the track ID matches what we expect to be playing
-        // If _activeTrackId is null, it means a skip was initiated - ignore completion
-        final currentTrackId = currentTrack?.id;
-        if (_activeTrackId == null) {
-          print('AudioPlayer: Ignoring completion - no active track (skip in progress)');
-          return;
-        }
-        if (currentTrackId != _activeTrackId) {
-          print('AudioPlayer: Ignoring completion for wrong track (expected: $_activeTrackId, current: $currentTrackId)');
-          return;
-        }
-        
-        // Additional validation: only consider it completed if we've actually played most of the track
-        // This prevents spurious completion events when switching tracks
         final pos = _player.state.position;
         final dur = _player.state.duration;
-        if (dur.inSeconds > 0 && pos.inSeconds < dur.inSeconds - 5) {
-          // Position is more than 5 seconds from the end - this is a spurious completion event
-          print('AudioPlayer: Ignoring spurious completion event (pos: ${pos.inSeconds}s, dur: ${dur.inSeconds}s)');
+        
+        // Ignore spurious completion events during/after seeking
+        if (_isSeeking) {
+          print('AudioPlayer: Ignoring completion during seek (pos: ${pos.inSeconds}s, dur: ${dur.inSeconds}s)');
           return;
         }
         
-        // Mark as no longer actively playing since track legitimately completed
-        _isActivelyPlaying = false;
+        // Also ignore if we just seeked within the last second
+        if (_lastSeekTime != null && 
+            DateTime.now().difference(_lastSeekTime!).inMilliseconds < 1000) {
+          print('AudioPlayer: Ignoring completion shortly after seek (pos: ${pos.inSeconds}s, dur: ${dur.inSeconds}s)');
+          return;
+        }
+        
+        // Ignore spurious completions shortly after seek recovery (within 3 seconds)
+        // This prevents the reload loop where seek recovery triggers another spurious completion
+        if (_lastSeekRecoveryTime != null &&
+            DateTime.now().difference(_lastSeekRecoveryTime!).inMilliseconds < 3000) {
+          print('AudioPlayer: Ignoring completion shortly after seek recovery (pos: ${pos.inSeconds}s, dur: ${dur.inSeconds}s)');
+          return;
+        }
+        
+        // Detect spurious completions where position is far from duration
+        // This can happen when cache file is incomplete or stream failed
+        if (dur.inSeconds > 0 && pos.inSeconds < dur.inSeconds - 3) {
+          // Use the last seek target position if we recently seeked (within 10 seconds)
+          // Otherwise use current position. This prevents restarting from 0 when user seeked to e.g. 96s
+          final recoveryPosition = (_lastSeekTime != null && 
+              DateTime.now().difference(_lastSeekTime!).inSeconds < 10 &&
+              _lastSeekTargetPosition.inSeconds > pos.inSeconds)
+              ? _lastSeekTargetPosition
+              : pos;
+          print('AudioPlayer: Spurious completion detected (pos: ${pos.inSeconds}s far from dur: ${dur.inSeconds}s) - reloading track at ${recoveryPosition.inSeconds}s');
+          // Reload the track from the recovery position with a fresh stream
+          _reloadCurrentTrackAtPosition(recoveryPosition);
+          return;
+        }
         
         print('AudioPlayer: Track completed (pos: ${pos.inSeconds}s, dur: ${dur.inSeconds}s)');
         _recordPlayTime(); // Record play time before moving to next track
         _onTrackCompleted();
       }
     });
+    
+    // Note: We don't use media_kit's playlist feature - we manage our own queue
+    // and open single Media objects. This gives us full control over track transitions.
 
     // Note: Play time tracking is handled in the main playing listener above
     // to avoid duplicate listeners causing race conditions
-    
-    // Start periodic state saving (every 10 seconds while playing)
-    _startStateSaveTimer();
   }
   
   /// Start timer to periodically save playback state
@@ -375,9 +418,6 @@ class AudioPlayerService {
   void _onTrackCompleted() {
     print('AudioPlayer: Track completed, handling next action...');
     
-    // Capture current track loading ID to validate delayed operations
-    final expectedLoadingId = _trackLoadingId;
-    
     // Cancel any pending buffering timeout
     _cancelBufferingTimeout();
     
@@ -394,27 +434,13 @@ class AudioPlayerService {
       case RepeatMode.all:
         // Play next, loop to start if at end
         print('AudioPlayer: Repeat mode ALL - playing next track');
-        Future.delayed(const Duration(milliseconds: 100), () {
-          // Validate this delayed operation is still relevant
-          if (expectedLoadingId != _trackLoadingId) {
-            print('AudioPlayer: Ignoring stale completion skipToNext (expected: $expectedLoadingId, current: $_trackLoadingId)');
-            return;
-          }
-          skipToNext();
-        });
+        skipToNext();
         break;
       case RepeatMode.off:
         // Play next if available
         if (_currentIndex < _queue.length - 1) {
           print('AudioPlayer: Repeat mode OFF - playing next track');
-          Future.delayed(const Duration(milliseconds: 100), () {
-            // Validate this delayed operation is still relevant
-            if (expectedLoadingId != _trackLoadingId) {
-              print('AudioPlayer: Ignoring stale completion skipToNext (expected: $expectedLoadingId, current: $_trackLoadingId)');
-              return;
-            }
-            skipToNext();
-          });
+          skipToNext();
         } else {
           // Queue ended - try to auto-queue more songs if enabled
           print('AudioPlayer: Queue ended - checking auto-queue');
@@ -485,12 +511,6 @@ class AudioPlayerService {
 
   /// Play a single track
   Future<void> play(Track track, {PlaySource source = PlaySource.unknown}) async {
-    // Increment track loading ID to cancel any stale track operations
-    _trackLoadingId++;
-    
-    // Clear active track ID to invalidate any pending completion events
-    _activeTrackId = null;
-    
     // Cancel any pending timeouts
     _cancelBufferingTimeout();
     _resumeTimeoutTimer?.cancel();
@@ -552,12 +572,6 @@ class AudioPlayerService {
     // Check if this is a different playlist
     final isDifferentPlaylist = playlistId != null && playlistId != _currentPlaylistId;
     
-    // Increment track loading ID to cancel any stale track operations
-    _trackLoadingId++;
-    
-    // Clear active track ID to invalidate any pending completion events
-    _activeTrackId = null;
-    
     // Cancel any pending timeouts
     _cancelBufferingTimeout();
     _resumeTimeoutTimer?.cancel();
@@ -594,12 +608,6 @@ class AudioPlayerService {
       print('AudioPlayer: playAll called with empty tracks list');
       return;
     }
-    
-    // Increment track loading ID to cancel any stale track operations
-    _trackLoadingId++;
-    
-    // Clear active track ID to invalidate any pending completion events
-    _activeTrackId = null;
     
     // Cancel any pending timeouts
     _cancelBufferingTimeout();
@@ -731,16 +739,16 @@ class AudioPlayerService {
   void _startBufferingTimeout({Duration timeout = const Duration(seconds: 12)}) {
     _cancelBufferingTimeout();
     
-    // Capture the current track loading ID to validate when timer fires
-    final expectedLoadingId = _trackLoadingId;
+    // Capture current session ID to validate when timer fires
+    final expectedSessionId = _playbackSessionId;
     
     // Capture current position to preserve on retry (don't restart from beginning)
     final currentPosition = _player.state.position;
     
     _bufferingTimeoutTimer = Timer(timeout, () async {
-      // Validate this timeout is for the current track - ignore stale timeouts
-      if (expectedLoadingId != _trackLoadingId) {
-        print('AudioPlayer: Ignoring stale buffering timeout (expected: $expectedLoadingId, current: $_trackLoadingId)');
+      // Validate this timeout is for the current session - ignore stale timeouts
+      if (expectedSessionId != _playbackSessionId) {
+        print('AudioPlayer: Ignoring stale buffering timeout (session changed)');
         return;
       }
       
@@ -779,8 +787,9 @@ class AudioPlayerService {
     _resumeTimeoutTimer?.cancel();
     _resumeTimeoutTimer = null;
     
-    // Mark as not actively playing during track switch
-    _isActivelyPlaying = false;
+    // Capture the current session ID at the start
+    final currentSessionId = _playbackSessionId;
+    print('AudioPlayer: _playCurrentTrack starting [session $currentSessionId, index $_currentIndex]');
     
     // Only stop player if it's actually stuck (buffering for too long or in a bad state)
     // Don't stop if it's just not playing - that's normal during track switch
@@ -788,10 +797,13 @@ class AudioPlayerService {
       print('AudioPlayer: Stopping player to reset stuck buffering state');
       await _player.stop();
     }
-
-    // Capture the current track loading ID at the start
-    final currentLoadingId = _trackLoadingId;
     
+    // Early session check - abort if session changed during stop
+    if (currentSessionId != _playbackSessionId) {
+      print('AudioPlayer: Session changed early ($currentSessionId != $_playbackSessionId), aborting...');
+      return;
+    }
+
     var track = _queue[_currentIndex];
     
     // Check if track needs YouTube matching (Spotify ID is not 11 chars)
@@ -800,8 +812,8 @@ class AudioPlayerService {
       final matchedTrack = await _matchTrackToYouTube(track);
       
       // Check if this track load was cancelled while matching
-      if (currentLoadingId != _trackLoadingId) {
-        print('AudioPlayer: Track load cancelled (stale loading ID), aborting...');
+      if (currentSessionId != _playbackSessionId) {
+        print('AudioPlayer: Track load cancelled (session changed), aborting...');
         _bufferingController.add(false);
         return;
       }
@@ -822,13 +834,13 @@ class AudioPlayerService {
     }
     
     // Check again if this track load was cancelled
-    if (currentLoadingId != _trackLoadingId) {
-      print('AudioPlayer: Track load cancelled (stale loading ID), aborting...');
+    if (currentSessionId != _playbackSessionId) {
+      print('AudioPlayer: Track load cancelled (session $currentSessionId != $_playbackSessionId), aborting...');
       _bufferingController.add(false);
       return;
     }
     
-    print('AudioPlayer: Playing track: ${track.title} (ID: ${track.id})');
+    print('AudioPlayer: Playing track: ${track.title} (ID: ${track.id}) [session $currentSessionId]');
     _currentTrackController.add(track);
     _bufferingController.add(true);
     
@@ -866,9 +878,9 @@ class AudioPlayerService {
         Future.delayed(timeoutDuration).then((_) => throw TimeoutException('Track loading timeout', timeoutDuration)),
       ]);
     } on TimeoutException catch (e) {
-      // Validate this error handling is for the current track
-      if (currentLoadingId != _trackLoadingId) {
-        print('AudioPlayer: Ignoring stale timeout (expected: $currentLoadingId, current: $_trackLoadingId)');
+      // Validate this error handling is for the current session
+      if (currentSessionId != _playbackSessionId) {
+        print('AudioPlayer: Ignoring stale timeout (session changed)');
         return;
       }
       
@@ -881,7 +893,7 @@ class AudioPlayerService {
         print('AudioPlayer: Retrying track (attempt ${retryCount + 1})');
         await Future.delayed(const Duration(milliseconds: 500));
         // Re-validate after delay
-        if (currentLoadingId != _trackLoadingId) {
+        if (currentSessionId != _playbackSessionId) {
           print('AudioPlayer: Ignoring stale retry after timeout');
           return;
         }
@@ -894,9 +906,9 @@ class AudioPlayerService {
         await skipToNext();
       }
     } catch (e, stackTrace) {
-      // Validate this error handling is for the current track
-      if (currentLoadingId != _trackLoadingId) {
-        print('AudioPlayer: Ignoring stale error (expected: $currentLoadingId, current: $_trackLoadingId)');
+      // Validate this error handling is for the current session
+      if (currentSessionId != _playbackSessionId) {
+        print('AudioPlayer: Ignoring stale error (session changed)');
         return;
       }
       
@@ -925,7 +937,7 @@ class AudioPlayerService {
         print('AudioPlayer: Retrying track after error (attempt ${retryCount + 1})');
         await Future.delayed(const Duration(milliseconds: 500));
         // Re-validate after delay
-        if (currentLoadingId != _trackLoadingId) {
+        if (currentSessionId != _playbackSessionId) {
           print('AudioPlayer: Ignoring stale retry after error');
           return;
         }
@@ -944,15 +956,15 @@ class AudioPlayerService {
   
   /// Attempt to play the track with proper error handling
   Future<void> _attemptPlayback(Track track) async {
-    // Capture the current track loading ID
-    final currentLoadingId = _trackLoadingId;
+    // Capture the current session ID
+    final currentSessionId = _playbackSessionId;
     
     try {
       // Ensure streaming server is running
       await _streamingServer.start();
       
       // Check if this track load was cancelled
-      if (currentLoadingId != _trackLoadingId) {
+      if (currentSessionId != _playbackSessionId) {
         print('AudioPlayer: Track load cancelled during server start, aborting...');
         return;
       }
@@ -961,7 +973,7 @@ class AudioPlayerService {
       final isCached = await _streamingServer.isAudioCached(track.id);
       
       // Check if this track load was cancelled
-      if (currentLoadingId != _trackLoadingId) {
+      if (currentSessionId != _playbackSessionId) {
         print('AudioPlayer: Track load cancelled during cache check, aborting...');
         return;
       }
@@ -973,19 +985,22 @@ class AudioPlayerService {
         await _player.open(Media(streamUrl));
         
         // Check if this track load was cancelled
-        if (currentLoadingId != _trackLoadingId) {
+        if (currentSessionId != _playbackSessionId) {
           print('AudioPlayer: Track load cancelled after opening cached media, aborting...');
           _player.stop();
           return;
         }
         
         await _player.play();
-        print('AudioPlayer: Playback started from cache');
         
-        // Mark this track as the active one for completion event validation
-        _activeTrackLoadingId = currentLoadingId;
-        _activeTrackId = track.id;
-        _isActivelyPlaying = true;
+        // Final session check after playback started
+        if (currentSessionId != _playbackSessionId) {
+          print('AudioPlayer: Session changed after cached play started, stopping...');
+          _player.stop();
+          return;
+        }
+        
+        print('AudioPlayer: Playback started from cache [session $currentSessionId]');
         
         // Cancel buffering timeout and reset auto-retry - playback started successfully
         _cancelBufferingTimeout();
@@ -999,7 +1014,7 @@ class AudioPlayerService {
       final success = await _streamingServer.prefetchStream(track.id);
       
       // Check if this track load was cancelled
-      if (currentLoadingId != _trackLoadingId) {
+      if (currentSessionId != _playbackSessionId) {
         print('AudioPlayer: Track load cancelled during stream prefetch, aborting...');
         return;
       }
@@ -1016,7 +1031,7 @@ class AudioPlayerService {
       await _player.open(Media(streamUrl));
       
       // Check if this track load was cancelled
-      if (currentLoadingId != _trackLoadingId) {
+      if (currentSessionId != _playbackSessionId) {
         print('AudioPlayer: Track load cancelled after opening media, aborting...');
         _player.stop();
         return;
@@ -1024,12 +1039,15 @@ class AudioPlayerService {
       
       print('AudioPlayer: Player opened, starting playback...');
       await _player.play();
-      print('AudioPlayer: Playback started');
       
-      // Mark this track as the active one for completion event validation
-      _activeTrackLoadingId = currentLoadingId;
-      _activeTrackId = track.id;
-      _isActivelyPlaying = true;
+      // Final session check after playback started
+      if (currentSessionId != _playbackSessionId) {
+        print('AudioPlayer: Session changed after play started, stopping...');
+        _player.stop();
+        return;
+      }
+      
+      print('AudioPlayer: Playback started [session $currentSessionId]');
       
       // Cancel buffering timeout and reset auto-retry - playback started successfully
       _cancelBufferingTimeout();
@@ -1123,14 +1141,14 @@ class AudioPlayerService {
     // Cancel any existing resume timeout
     _resumeTimeoutTimer?.cancel();
     
-    // Capture current track loading ID to validate timeout
-    final expectedLoadingId = _trackLoadingId;
+    // Capture current session ID to validate timeout
+    final expectedSessionId = _playbackSessionId;
     
     // Start a timeout to detect stuck resume (stale stream)
     _resumeTimeoutTimer = Timer(const Duration(seconds: 8), () async {
-      // Validate this timeout is for the current track
-      if (expectedLoadingId != _trackLoadingId) {
-        print('AudioPlayer: Ignoring stale resume timeout (expected: $expectedLoadingId, current: $_trackLoadingId)');
+      // Validate this timeout is for the current session
+      if (expectedSessionId != _playbackSessionId) {
+        print('AudioPlayer: Ignoring stale resume timeout (session changed)');
         return;
       }
       
@@ -1140,9 +1158,6 @@ class AudioPlayerService {
         await _refreshAndResumeTrack(track, currentPosition);
       }
     });
-    
-    // Mark as actively playing - user is resuming
-    _isActivelyPlaying = true;
     
     // Start with volume at 0 for fade-in effect
     final targetVolume = _originalVolume > 0 ? _originalVolume : 1.0;
@@ -1251,9 +1266,6 @@ class AudioPlayerService {
     if (_isFadingOut) return; // Prevent multiple fade calls
     _isFadingOut = true;
     
-    // Mark as not actively playing - user intentionally paused
-    _isActivelyPlaying = false;
-    
     // Store current volume to restore later
     _originalVolume = _player.state.volume / 100.0;
     
@@ -1309,26 +1321,119 @@ class AudioPlayerService {
 
   /// Seek to position
   Future<void> seek(Duration position) async {
+    // Check if player was playing OR buffering (buffering means it's trying to play)
+    final wasPlaying = _player.state.playing;
+    final wasBuffering = _player.state.buffering;
+    final shouldResume = wasPlaying || wasBuffering;
+    
+    _isSeeking = true;
+    _lastSeekTime = DateTime.now();
+    _lastSeekTargetPosition = position; // Track target for spurious completion recovery
+    print('AudioPlayer: Seeking to ${position.inSeconds}s (wasPlaying: $wasPlaying, wasBuffering: $wasBuffering)');
+    
+    // Cancel any existing seek timeout
+    _seekTimeoutTimer?.cancel();
+    
     await _player.seek(position);
+    
+    // Resume playback if it was playing or buffering before seek
+    if (shouldResume) {
+      await _player.play();
+      
+      // Start a timeout to detect stuck seek (buffering doesn't complete)
+      _startSeekTimeout(position);
+    }
+    
+    // Give a small delay before allowing completion events again
+    Future.delayed(const Duration(milliseconds: 500), () {
+      _isSeeking = false;
+    });
+  }
+  
+  // Timer to detect stuck seek and auto-recover
+  Timer? _seekTimeoutTimer;
+  
+  /// Start a seek timeout - auto-recover if playback doesn't resume after seek
+  void _startSeekTimeout(Duration seekPosition) {
+    _seekTimeoutTimer?.cancel();
+    
+    // Capture current session ID to validate when timer fires
+    final expectedSessionId = _playbackSessionId;
+    
+    // First timeout at 2 seconds - try a quick play() + re-seek retry
+    _seekTimeoutTimer = Timer(const Duration(seconds: 2), () async {
+      // Validate this timeout is for the current session
+      if (expectedSessionId != _playbackSessionId) {
+        print('AudioPlayer: Ignoring stale seek timeout (session changed)');
+        return;
+      }
+      
+      // Check if we're still not playing after 2 seconds
+      if (!_player.state.playing) {
+        print('AudioPlayer: Seek stuck detected, trying play() + re-seek to ${seekPosition.inSeconds}s');
+        
+        // Enable seek recovery mode to suppress UI changes
+        _isSeekRecovering = true;
+        _seekRecoveryTargetPosition = seekPosition;
+        
+        // Try play() then re-seek to the target position
+        await _player.play();
+        await _player.seek(seekPosition);
+        
+        // Wait 1 more second, if still not playing, do full reload
+        _seekTimeoutTimer = Timer(const Duration(seconds: 1), () async {
+          if (expectedSessionId != _playbackSessionId) return;
+          
+          if (!_player.state.playing) {
+            print('AudioPlayer: Play+seek retry failed, reloading track at ${seekPosition.inSeconds}s');
+            
+            _bufferingController.add(true); // Ensure buffering indicator is shown
+            
+            // Reload the track at the seek position
+            await _playCurrentTrackAtPosition(seekPosition);
+          } else {
+            // Play succeeded, clear recovery mode
+            _isSeekRecovering = false;
+            _lastSeekRecoveryTime = DateTime.now();
+            print('AudioPlayer: Seek recovery complete via play+seek retry');
+          }
+        });
+      }
+    });
+    
+    // Cancel timeout and recovery mode if playback starts successfully
+    _player.stream.playing.first.then((playing) {
+      if (playing && expectedSessionId == _playbackSessionId) {
+        _seekTimeoutTimer?.cancel();
+        _seekTimeoutTimer = null;
+        // Clear seek recovery mode when playback resumes
+        if (_isSeekRecovering) {
+          _isSeekRecovering = false;
+          _lastSeekRecoveryTime = DateTime.now();
+          print('AudioPlayer: Seek recovery complete, playback resumed');
+        }
+      }
+    });
   }
 
   /// Skip to next track
   Future<void> skipToNext() async {
     if (_queue.isEmpty) return;
 
-    // Increment track loading ID to cancel any pending track loads
-    _trackLoadingId++;
+    // Increment session ID to cancel any pending track loads
+    _playbackSessionId++;
+    print('AudioPlayer: skipToNext - new session $_playbackSessionId');
     
-    // Clear active track ID to invalidate any pending completion events
-    _activeTrackId = null;
-    _isActivelyPlaying = false;
-    
-    // Cancel any pending buffering timeout from previous track
+    // Cancel any pending timeouts and recovery state from previous track
     _cancelBufferingTimeout();
+    _seekTimeoutTimer?.cancel();
+    _isSeekRecovering = false;
+    _lastSeekRecoveryTime = null;
+    _lastSeekTargetPosition = Duration.zero;
     _resetAutoRetry();
     
     // Stop current playback immediately
-    _player.stop();
+    await _player.stop();
 
     if (_isShuffled && _shuffledIndices.isNotEmpty) {
       final currentShuffleIndex = _shuffledIndices.indexOf(_currentIndex);
@@ -1362,19 +1467,20 @@ class AudioPlayerService {
       return;
     }
 
-    // Increment track loading ID to cancel any pending track loads
-    _trackLoadingId++;
+    // Increment session ID to cancel any pending track loads
+    _playbackSessionId++;
+    print('AudioPlayer: skipToPrevious - new session $_playbackSessionId');
     
-    // Clear active track ID to invalidate any pending completion events
-    _activeTrackId = null;
-    _isActivelyPlaying = false;
-    
-    // Cancel any pending buffering timeout from previous track
+    // Cancel any pending timeouts and recovery state from previous track
     _cancelBufferingTimeout();
+    _seekTimeoutTimer?.cancel();
+    _isSeekRecovering = false;
+    _lastSeekRecoveryTime = null;
+    _lastSeekTargetPosition = Duration.zero;
     _resetAutoRetry();
     
     // Stop current playback immediately
-    _player.stop();
+    await _player.stop();
 
     if (_isShuffled && _shuffledIndices.isNotEmpty) {
       final currentShuffleIndex = _shuffledIndices.indexOf(_currentIndex);
@@ -1403,6 +1509,22 @@ class AudioPlayerService {
   /// Skip to specific index
   Future<void> skipToIndex(int index) async {
     if (index < 0 || index >= _queue.length) return;
+    
+    // Increment session ID to cancel any pending track loads
+    _playbackSessionId++;
+    print('AudioPlayer: skipToIndex($index) - new session $_playbackSessionId');
+    
+    // Cancel any pending timeouts and recovery state from previous track
+    _cancelBufferingTimeout();
+    _seekTimeoutTimer?.cancel();
+    _isSeekRecovering = false;
+    _lastSeekRecoveryTime = null;
+    _lastSeekTargetPosition = Duration.zero;
+    _resetAutoRetry();
+    
+    // Stop current playback immediately
+    await _player.stop();
+    
     _currentIndex = index;
     await _playCurrentTrack();
   }
@@ -1461,56 +1583,44 @@ class AudioPlayerService {
   }
   
   /// Prefetch multiple upcoming tracks in background
-  /// This ensures that when user skips to 4th or 5th song, it's already cached
-  /// Skips already-matched tracks to always prefetch N NEW unmatched tracks
+  /// This ensures next songs start instantly without loading or buffering
+  /// Prefetches and caches to disk for instant playback
   void _prefetchUpcomingTracks({int count = 3}) {
     if (_queue.isEmpty) return;
     
     final sessionId = _playbackSessionId;
     final indicesToPrefetch = <int>[];
     
-    // Calculate which indices to prefetch - skip already matched tracks
-    // to always prefetch `count` NEW unmatched tracks
+    // Calculate which indices to prefetch - get next N tracks
     if (_isShuffled && _shuffledIndices.isNotEmpty) {
       final currentShuffleIndex = _shuffledIndices.indexOf(_currentIndex);
-      int offset = 1;
-      while (indicesToPrefetch.length < count) {
+      for (int offset = 1; offset <= count; offset++) {
         final nextShuffleIndex = currentShuffleIndex + offset;
         if (nextShuffleIndex >= _shuffledIndices.length) break;
-        
-        final queueIndex = _shuffledIndices[nextShuffleIndex];
-        final track = _queue[queueIndex];
-        // Only add if track needs matching (non-YouTube ID) or stream prefetch
-        // YouTube IDs are exactly 11 characters
-        if (track.id.length != 11) {
-          indicesToPrefetch.add(queueIndex);
-        }
-        offset++;
+        indicesToPrefetch.add(_shuffledIndices[nextShuffleIndex]);
       }
     } else {
-      int offset = 1;
-      while (indicesToPrefetch.length < count) {
+      for (int offset = 1; offset <= count; offset++) {
         final nextIndex = _currentIndex + offset;
         if (nextIndex >= _queue.length) break;
-        
-        final track = _queue[nextIndex];
-        // Only add if track needs matching (non-YouTube ID)
-        // YouTube IDs are exactly 11 characters
-        if (track.id.length != 11) {
-          indicesToPrefetch.add(nextIndex);
-        }
-        offset++;
+        indicesToPrefetch.add(nextIndex);
       }
     }
+    
+    if (indicesToPrefetch.isEmpty) return;
+    
+    print('AudioPlayer: Prefetching next ${indicesToPrefetch.length} tracks in background');
     
     // Prefetch each track in sequence (to avoid overwhelming the network)
     _prefetchTracksSequentially(indicesToPrefetch, sessionId);
   }
   
   /// Prefetch tracks one by one to avoid network congestion
-  /// Includes delays to yield to UI thread and prevent frame time issues
+  /// Downloads and caches each track to disk for instant playback
   Future<void> _prefetchTracksSequentially(List<int> indices, int sessionId) async {
-    for (final index in indices) {
+    for (int i = 0; i < indices.length; i++) {
+      final index = indices[i];
+      
       // Check if session is still valid
       if (sessionId != _playbackSessionId) {
         print('AudioPlayer: Prefetch cancelled - session changed');
@@ -1519,41 +1629,41 @@ class AudioPlayerService {
       
       if (index < 0 || index >= _queue.length) continue;
       
-      final track = _queue[index];
+      var track = _queue[index];
       
       // Yield to UI thread before each prefetch operation
-      await Future.delayed(const Duration(milliseconds: 50));
-      
-      // Skip if already cached
-      final isCached = await _streamingServer.isAudioCached(track.id);
-      if (isCached) {
-        print('AudioPlayer: Track already cached: ${track.title}');
-        continue;
-      }
+      await Future.delayed(const Duration(milliseconds: 100));
       
       // Check if track needs YouTube matching first
       if (track.id.length != 11) {
-        print('AudioPlayer: Prefetch - matching track: ${track.title}');
+        print('AudioPlayer: Prefetch [${i + 1}/${indices.length}] - matching: ${track.title}');
         final matchedTrack = await _matchTrackToYouTube(track);
         if (matchedTrack != null && sessionId == _playbackSessionId) {
           _queue[index] = matchedTrack;
           _queueController.add(_queue);
-          
-          // Yield to UI thread before prefetching
-          await Future.delayed(const Duration(milliseconds: 50));
-          
-          // Prefetch the matched track
-          print('AudioPlayer: Prefetching matched track: ${matchedTrack.title}');
-          await _streamingServer.prefetchStream(matchedTrack.id);
+          track = matchedTrack;
+        } else {
+          print('AudioPlayer: Prefetch - failed to match: ${track.title}');
+          continue;
         }
-      } else {
-        print('AudioPlayer: Prefetching track ${index - _currentIndex} ahead: ${track.title}');
-        await _streamingServer.prefetchStream(track.id);
       }
       
+      // Skip if already cached on disk
+      final isCached = await _streamingServer.isAudioCached(track.id);
+      if (isCached) {
+        print('AudioPlayer: Prefetch [${i + 1}/${indices.length}] - already cached: ${track.title}');
+        continue;
+      }
+      
+      // Prefetch and cache to disk
+      print('AudioPlayer: Prefetch [${i + 1}/${indices.length}] - downloading: ${track.title}');
+      await _streamingServer.prefetchAndCacheTrack(track.id);
+      
       // Yield to UI thread after each prefetch to prevent frame drops
-      await Future.delayed(const Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 200));
     }
+    
+    print('AudioPlayer: Prefetch complete');
   }
 
   /// Restore last played track from saved state (call on app startup)
@@ -1648,12 +1758,8 @@ class AudioPlayerService {
   Future<void> _playCurrentTrackAtPosition(Duration startPosition) async {
     if (_currentIndex < 0 || _currentIndex >= _queue.length) return;
 
-    // Increment track loading ID to cancel any stale operations
-    _trackLoadingId++;
-    final currentLoadingId = _trackLoadingId;
-    
-    // Clear active track ID until playback actually starts
-    _activeTrackId = null;
+    // Capture the current session ID
+    final currentSessionId = _playbackSessionId;
     
     var track = _queue[_currentIndex];
     
@@ -1669,6 +1775,12 @@ class AudioPlayerService {
         print('AudioPlayer: Failed to match track to YouTube');
         return;
       }
+    }
+    
+    // Check if session changed during matching
+    if (currentSessionId != _playbackSessionId) {
+      print('AudioPlayer: Session changed during track matching, aborting...');
+      return;
     }
     
     print('AudioPlayer: Playing track at position ${startPosition.inSeconds}s: ${track.title}');
@@ -1704,6 +1816,12 @@ class AudioPlayerService {
         }
       }
       
+      // Check if session changed
+      if (currentSessionId != _playbackSessionId) {
+        print('AudioPlayer: Session changed during prefetch, aborting...');
+        return;
+      }
+      
       final streamUrl = _streamingServer.getStreamUrl(track.id);
       print('AudioPlayer: Opening media at $streamUrl');
       
@@ -1721,14 +1839,19 @@ class AudioPlayerService {
       print('AudioPlayer: Seeking to ${startPosition.inSeconds}s (duration: ${_player.state.duration.inSeconds}s)');
       await _player.seek(startPosition);
       
-      // Mark this track as the active one for completion event validation
-      _activeTrackLoadingId = currentLoadingId;
-      _activeTrackId = track.id;
-      
       print('AudioPlayer: Playback started at ${startPosition.inSeconds}s');
+      
+      // Clear seek recovery mode - playback successfully resumed
+      if (_isSeekRecovering) {
+        _isSeekRecovering = false;
+        _lastSeekRecoveryTime = DateTime.now(); // Track recovery time to ignore spurious completions
+        print('AudioPlayer: Seek recovery complete');
+      }
+      
       _prefetchNextTrack();
     } catch (e) {
       print('AudioPlayer: Error playing track at position: $e');
+      _isSeekRecovering = false; // Clear recovery mode on error
       _bufferingController.add(false);
       // Fallback to regular playback
       await _playCurrentTrack();
@@ -1737,11 +1860,35 @@ class AudioPlayerService {
   
   /// Check if there's a restored track ready to play (track restored but not yet loaded into player)
   bool get hasRestoredTrack => _isRestoredTrackPending;
+  
+  /// Reload current track at a specific position with a fresh stream
+  /// Used when spurious completion is detected (e.g., incomplete cache file)
+  Future<void> _reloadCurrentTrackAtPosition(Duration position) async {
+    if (_currentIndex < 0 || _currentIndex >= _queue.length) return;
+    
+    final track = _queue[_currentIndex];
+    print('AudioPlayer: Reloading track "${track.title}" at ${position.inSeconds}s with fresh stream');
+    
+    // Enable seek recovery mode to suppress UI changes during reload
+    _isSeekRecovering = true;
+    _seekRecoveryTargetPosition = position;
+    _bufferingController.add(true);
+    
+    // Clear the potentially corrupted cache for this track
+    await _streamingServer.clearCachedStream(track.id);
+    
+    // Stop current playback
+    await _player.stop();
+    
+    // Reload with fresh stream
+    await _playCurrentTrackAtPosition(position);
+  }
 
   /// Dispose resources
   void dispose() {
     _stateSaveTimer?.cancel();
     _resumeTimeoutTimer?.cancel();
+    _seekTimeoutTimer?.cancel();
     _cancelBufferingTimeout();
     _saveCurrentState(); // Save state before disposing
     _player.dispose();

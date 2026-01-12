@@ -67,6 +67,11 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
   Offset? _gestureStartPoint;
   bool _gestureDirectionDecided = false;
   bool _isHorizontalGesture = false;
+  
+  // Seek bar scrubbing state - only seek on release, not during drag
+  // This prevents issues when song is loading and user moves the slider
+  double? _scrubbingPosition; // null when not scrubbing, 0.0-1.0 when scrubbing
+  bool _isScrubbing = false;
   static const double _gestureDecisionThreshold = 15.0; // Pixels to move before deciding direction
   
   @override
@@ -940,12 +945,32 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
                             ),
                           ),
                           child: Slider(
-                            value: progress.clamp(0.0, 1.0),
+                            // Use scrubbing position during drag, otherwise use actual progress
+                            value: (_isScrubbing ? _scrubbingPosition : progress)?.clamp(0.0, 1.0) ?? 0.0,
+                            onChangeStart: (value) {
+                              // Start scrubbing - track position locally
+                              setState(() {
+                                _isScrubbing = true;
+                                _scrubbingPosition = value;
+                              });
+                            },
                             onChanged: (value) {
+                              // Update local scrubbing position only - don't seek yet
+                              setState(() {
+                                _scrubbingPosition = value;
+                              });
+                            },
+                            onChangeEnd: (value) {
+                              // Perform the actual seek only when user releases the slider
                               final newPosition = Duration(
                                 milliseconds: (value * durationValue.inMilliseconds).toInt(),
                               );
                               audioService.seek(newPosition);
+                              // Reset scrubbing state
+                              setState(() {
+                                _isScrubbing = false;
+                                _scrubbingPosition = null;
+                              });
                             },
                             activeColor: Colors.white,
                             inactiveColor: Colors.grey.shade700,
@@ -957,7 +982,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with SingleTickerProvid
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                _formatDuration(positionValue),
+                                // Show scrubbing position during drag for immediate feedback
+                                _formatDuration(_isScrubbing && _scrubbingPosition != null
+                                    ? Duration(milliseconds: (_scrubbingPosition! * durationValue.inMilliseconds).toInt())
+                                    : positionValue),
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: Colors.grey.shade400,

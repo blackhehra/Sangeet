@@ -123,16 +123,8 @@ void main(List<String> args) async {
     });
     
     // Initialize playback state service and restore last played track
-    PlaybackStateService.instance.init().then((_) async {
-      print('PlaybackStateService: Initialized');
-      // Restore last played track (shows in mini player)
-      final restored = await AudioPlayerService().restoreLastPlayedTrack();
-      if (restored) {
-        print('PlaybackStateService: Last played track restored');
-      }
-    }).catchError((e) {
-      print('PlaybackStateService: Init failed: $e');
-    });
+    // Use await to ensure init completes before restore attempt
+    _initPlaybackState();
     
     // Initialize listening stats service (for analytics dashboard)
     ListeningStatsService.instance.init().then((_) {
@@ -228,6 +220,28 @@ void main(List<String> args) async {
     // Print other errors
     print('App Error: $error');
   });
+}
+
+/// Initialize playback state service and restore last played track
+/// Separated to ensure proper async handling and error recovery
+Future<void> _initPlaybackState() async {
+  try {
+    await PlaybackStateService.instance.init();
+    print('PlaybackStateService: Initialized');
+    
+    // Restore last played track (shows in mini player)
+    // Wrapped in try-catch to prevent crash if restoration fails
+    try {
+      final restored = await AudioPlayerService().restoreLastPlayedTrack();
+      if (restored) {
+        print('PlaybackStateService: Last played track restored');
+      }
+    } catch (e) {
+      print('PlaybackStateService: Restore failed (non-fatal): $e');
+    }
+  } catch (e) {
+    print('PlaybackStateService: Init failed: $e');
+  }
 }
 
 /// Initialize heavy services after splash video completes

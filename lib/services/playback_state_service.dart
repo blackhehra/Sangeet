@@ -100,7 +100,13 @@ class PlaybackStateService {
 
   /// Check if there's a saved playback state
   bool hasSavedState() {
-    return _prefs?.getString(_lastTrackKey) != null;
+    if (_prefs == null) return false;
+    try {
+      return _prefs?.getString(_lastTrackKey) != null;
+    } catch (e) {
+      print('PlaybackStateService: Error checking saved state: $e');
+      return false;
+    }
   }
 
   /// Clear the saved playback state
@@ -114,14 +120,21 @@ class PlaybackStateService {
 
   /// Get full saved state as a record
   ({Track? track, Duration position, List<Track>? queue, int queueIndex})? getSavedState() {
-    final track = getLastTrack();
-    if (track == null) return null;
+    if (_prefs == null) return null;
     
-    return (
-      track: track,
-      position: getLastPosition(),
-      queue: getLastQueue(),
-      queueIndex: getLastQueueIndex(),
-    );
+    try {
+      final track = getLastTrack();
+      if (track == null) return null;
+      
+      return (
+        track: track,
+        position: getLastPosition(),
+        queue: getLastQueue(),
+        queueIndex: getLastQueueIndex(),
+      );
+    } catch (e) {
+      print('PlaybackStateService: Error getting saved state: $e');
+      return null;
+    }
   }
 }

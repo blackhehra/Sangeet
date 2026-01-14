@@ -1359,47 +1359,65 @@ class AudioPlayerService {
     
     // Capture current session ID to validate when timer fires
     final expectedSessionId = _playbackSessionId;
+    int retryCount = 0;
+    const maxRetries = 3;
     
-    // First timeout at 2 seconds - try a quick play() + re-seek retry
-    _seekTimeoutTimer = Timer(const Duration(seconds: 2), () async {
-      // Validate this timeout is for the current session
-      if (expectedSessionId != _playbackSessionId) {
-        print('AudioPlayer: Ignoring stale seek timeout (session changed)');
-        return;
-      }
+    void scheduleRetry() {
+      // Use shorter timeout for first retry (500ms), then 500ms for subsequent
+      final timeout = Duration(milliseconds: retryCount == 0 ? 500 : 500);
       
-      // Check if we're still not playing after 2 seconds
-      if (!_player.state.playing) {
-        print('AudioPlayer: Seek stuck detected, trying play() + re-seek to ${seekPosition.inSeconds}s');
+      _seekTimeoutTimer = Timer(timeout, () async {
+        // Validate this timeout is for the current session
+        if (expectedSessionId != _playbackSessionId) {
+          print('AudioPlayer: Ignoring stale seek timeout (session changed)');
+          return;
+        }
         
-        // Enable seek recovery mode to suppress UI changes
-        _isSeekRecovering = true;
-        _seekRecoveryTargetPosition = seekPosition;
-        
-        // Try play() then re-seek to the target position
-        await _player.play();
-        await _player.seek(seekPosition);
-        
-        // Wait 1 more second, if still not playing, do full reload
-        _seekTimeoutTimer = Timer(const Duration(seconds: 1), () async {
-          if (expectedSessionId != _playbackSessionId) return;
+        // Check if we're still not playing
+        if (!_player.state.playing) {
+          retryCount++;
+          print('AudioPlayer: Seek stuck, retry $retryCount/$maxRetries - play+seek to ${seekPosition.inSeconds}s');
           
-          if (!_player.state.playing) {
-            print('AudioPlayer: Play+seek retry failed, reloading track at ${seekPosition.inSeconds}s');
-            
-            _bufferingController.add(true); // Ensure buffering indicator is shown
-            
-            // Reload the track at the seek position
-            await _playCurrentTrackAtPosition(seekPosition);
+          // Enable seek recovery mode to suppress UI changes
+          _isSeekRecovering = true;
+          _seekRecoveryTargetPosition = seekPosition;
+          
+          // Try play() then re-seek to the target position
+          await _player.play();
+          await _player.seek(seekPosition);
+          
+          if (retryCount < maxRetries) {
+            // Schedule another retry
+            scheduleRetry();
           } else {
-            // Play succeeded, clear recovery mode
-            _isSeekRecovering = false;
-            _lastSeekRecoveryTime = DateTime.now();
-            print('AudioPlayer: Seek recovery complete via play+seek retry');
+            // Max retries reached, do full reload (but keep cache - don't clear it)
+            _seekTimeoutTimer = Timer(const Duration(milliseconds: 500), () async {
+              if (expectedSessionId != _playbackSessionId) return;
+              
+              if (!_player.state.playing) {
+                print('AudioPlayer: All retries failed, reloading track at ${seekPosition.inSeconds}s');
+                _bufferingController.add(true);
+                // Reload track but DON'T clear cache - just re-open the stream
+                await _player.stop();
+                await _playCurrentTrackAtPosition(seekPosition);
+              } else {
+                _isSeekRecovering = false;
+                _lastSeekRecoveryTime = DateTime.now();
+                print('AudioPlayer: Seek recovery complete after $retryCount retries');
+              }
+            });
           }
-        });
-      }
-    });
+        } else {
+          // Playing successfully
+          _isSeekRecovering = false;
+          _lastSeekRecoveryTime = DateTime.now();
+          print('AudioPlayer: Seek recovery complete after $retryCount retries');
+        }
+      });
+    }
+    
+    // Start the retry loop
+    scheduleRetry();
     
     // Cancel timeout and recovery mode if playback starts successfully
     _player.stream.playing.first.then((playing) {
@@ -1458,11 +1476,13 @@ class AudioPlayerService {
   }
 
   /// Skip to previous track
-  Future<void> skipToPrevious() async {
+  /// If [forceSkip] is true, always go to previous track (used for swipe gesture)
+  /// If false (default), restart current track if more than 3 seconds in (used for button)
+  Future<void> skipToPrevious({bool forceSkip = false}) async {
     if (_queue.isEmpty) return;
 
-    // If more than 3 seconds in, restart current track
-    if (_player.state.position.inSeconds > 3) {
+    // If more than 3 seconds in and not forcing skip, restart current track
+    if (!forceSkip && _player.state.position.inSeconds > 3) {
       await seek(Duration.zero);
       return;
     }

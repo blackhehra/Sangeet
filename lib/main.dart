@@ -123,8 +123,16 @@ void main(List<String> args) async {
     });
     
     // Initialize playback state service and restore last played track
-    // Use await to ensure init completes before restore attempt
-    _initPlaybackState();
+    PlaybackStateService.instance.init().then((_) async {
+      print('PlaybackStateService: Initialized');
+      // Restore last played track (shows in mini player)
+      final restored = await AudioPlayerService().restoreLastPlayedTrack();
+      if (restored) {
+        print('PlaybackStateService: Last played track restored');
+      }
+    }).catchError((e) {
+      print('PlaybackStateService: Init failed: $e');
+    });
     
     // Initialize listening stats service (for analytics dashboard)
     ListeningStatsService.instance.init().then((_) {
@@ -155,16 +163,21 @@ void main(List<String> args) async {
       print('Notification permission request failed: $e');
     }
     
-    // Initialize Deep Link Handler for sharing (lightweight, can run during splash)
+    // Initialize Spotify Plugin
+    try {
+      await SpotifyPluginService.initialize(navigatorKey: rootNavigatorKey);
+      print('SpotifyPlugin: Initialized successfully');
+    } catch (e, stack) {
+      print('SpotifyPlugin: Failed to initialize: $e');
+      print(stack);
+    }
+    
+    // Initialize Deep Link Handler for sharing
     DeepLinkHandlerService.instance.init(navigatorKey: rootNavigatorKey).then((_) {
       print('DeepLinkHandlerService: Initialized');
     }).catchError((e) {
       print('DeepLinkHandlerService: Init failed: $e');
     });
-    
-    // NOTE: SpotifyPlugin initialization is deferred to after splash video
-    // to prioritize video codec and reduce startup lag.
-    // See initializeHeavyServices() which is called from SplashVideoPage.onComplete
     
     // Set system UI overlay style
     SystemChrome.setSystemUIOverlayStyle(
@@ -220,42 +233,6 @@ void main(List<String> args) async {
     // Print other errors
     print('App Error: $error');
   });
-}
-
-/// Initialize playback state service and restore last played track
-/// Separated to ensure proper async handling and error recovery
-Future<void> _initPlaybackState() async {
-  try {
-    await PlaybackStateService.instance.init();
-    print('PlaybackStateService: Initialized');
-    
-    // Restore last played track (shows in mini player)
-    // Wrapped in try-catch to prevent crash if restoration fails
-    try {
-      final restored = await AudioPlayerService().restoreLastPlayedTrack();
-      if (restored) {
-        print('PlaybackStateService: Last played track restored');
-      }
-    } catch (e) {
-      print('PlaybackStateService: Restore failed (non-fatal): $e');
-    }
-  } catch (e) {
-    print('PlaybackStateService: Init failed: $e');
-  }
-}
-
-/// Initialize heavy services after splash video completes
-/// This defers CPU-intensive work (like Hetu bytecode compilation) to after
-/// the video codec has finished, preventing video lag during splash
-Future<void> initializeHeavyServices() async {
-  // Initialize Spotify Plugin (heavy - loads Hetu bytecode)
-  try {
-    await SpotifyPluginService.initialize(navigatorKey: rootNavigatorKey);
-    print('SpotifyPlugin: Initialized successfully');
-  } catch (e, stack) {
-    print('SpotifyPlugin: Failed to initialize: $e');
-    print(stack);
-  }
 }
 
 /// Custom HttpOverrides to bypass SSL certificate verification on desktop

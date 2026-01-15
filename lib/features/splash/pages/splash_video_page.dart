@@ -111,9 +111,8 @@ class _SplashVideoPageState extends State<SplashVideoPage> {
       });
       widget.onComplete?.call();
       
-      // Initialize heavy services after splash completes
-      // This defers CPU-intensive work (Hetu bytecode) to after video codec is done
-      initializeHeavyServices();
+      // SpotifyPlugin is now initialized during app startup in main.dart
+      // No need to defer heavy services anymore
     }
   }
 

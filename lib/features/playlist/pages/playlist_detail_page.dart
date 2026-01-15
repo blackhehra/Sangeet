@@ -479,8 +479,8 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
       
       // Instant import: Save Spotify metadata only (no matching yet)
       // Matching happens on-demand when user clicks to play
-      // Reverse the list so recently added songs appear at top
-      final importedTracks = tracks.reversed.map((spotifyTrack) => Track(
+      // Keep original Spotify order (recently added at top)
+      final importedTracks = tracks.map((spotifyTrack) => Track(
         id: spotifyTrack.id, // Spotify ID - will be matched to YouTube on play
         title: spotifyTrack.name,
         artist: spotifyTrack.artists.map((a) => a.name).join(', '),

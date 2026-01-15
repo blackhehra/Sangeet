@@ -35,6 +35,7 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
   SortOption _currentSort = SortOption.recentlyAdded;
   bool _titleAscending = true;
   bool _artistAscending = true;
+  bool _recentlyAddedNewestFirst = true; // true = newest on top (Spotify default)
 
   bool get _isDesktop => !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
 
@@ -43,8 +44,11 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
     
     switch (_currentSort) {
       case SortOption.recentlyAdded:
-        // Keep original order (tracks are stored in the order they were added)
-        // No sorting needed - first added appears first
+        // Tracks are stored in Spotify order (recently added at top)
+        // If user wants oldest first, reverse the list
+        if (!_recentlyAddedNewestFirst) {
+          _sortedTracks = _sortedTracks.reversed.toList();
+        }
         break;
       case SortOption.title:
         _sortedTracks.sort((a, b) {
@@ -117,7 +121,9 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
     String displayLabel = label;
     
     if (isSelected) {
-      if (option == SortOption.title) {
+      if (option == SortOption.recentlyAdded) {
+        displayLabel = _recentlyAddedNewestFirst ? '$label (Newest)' : '$label (Oldest)';
+      } else if (option == SortOption.title) {
         displayLabel = _titleAscending ? '$label (A-Z)' : '$label (Z-A)';
       } else if (option == SortOption.artist) {
         displayLabel = _artistAscending ? '$label (A-Z)' : '$label (Z-A)';
@@ -145,6 +151,7 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
       onTap: () {
         // Store the sort values before closing
         final newSort = option;
+        final shouldToggleRecentlyAdded = _currentSort == option && option == SortOption.recentlyAdded;
         final shouldToggleTitle = _currentSort == option && option == SortOption.title;
         final shouldToggleArtist = _currentSort == option && option == SortOption.artist;
         
@@ -153,13 +160,17 @@ class _CustomPlaylistDetailPageState extends ConsumerState<CustomPlaylistDetailP
         
         // Then update state after the sheet is closed
         setState(() {
-          if (shouldToggleTitle) {
+          if (shouldToggleRecentlyAdded) {
+            _recentlyAddedNewestFirst = !_recentlyAddedNewestFirst;
+          } else if (shouldToggleTitle) {
             _titleAscending = !_titleAscending;
           } else if (shouldToggleArtist) {
             _artistAscending = !_artistAscending;
           } else {
             _currentSort = newSort;
-            if (newSort == SortOption.title) {
+            if (newSort == SortOption.recentlyAdded) {
+              _recentlyAddedNewestFirst = true;
+            } else if (newSort == SortOption.title) {
               _titleAscending = true;
             } else if (newSort == SortOption.artist) {
               _artistAscending = true;

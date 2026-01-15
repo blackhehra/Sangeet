@@ -58,13 +58,12 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
   bool _isSwiping = false;
   int _pendingSwipeDirection = 0; // -1 = prev, 0 = none, 1 = next
   
-  // Spotify-style gesture disambiguation with angle threshold
-  // Prioritize horizontal unless swipe is nearly straight down (within ~15° of vertical)
-  Offset? _gestureStartPosition;
+  // Spotify-style gesture detection with angle threshold
+  // Prioritize horizontal in center, vertical only for straight-down swipes
+  Offset? _panStartPosition;
   bool _gestureDirectionDecided = false;
   bool _isHorizontalGesture = false;
-  static const double _angleThresholdDegrees = 75.0; // Angle from horizontal - above this = vertical
-  static const double _lockDistanceThreshold = 15.0; // Pixels before locking direction
+  static const double _angleThresholdDegrees = 25.0; // Vertical only if within 25° of straight down
   
   // Seek bar scrubbing state - only seek on release, not during drag
   // This prevents issues when song is loading and user moves the slider
@@ -637,43 +636,51 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                       }
                       
                       // Normal album art with swipe and long press
-                      // Using pan gestures with Spotify-style angle detection
+                      // Uses Spotify-style gesture detection: angle threshold + initial lock
+                      // Prioritizes horizontal in center, vertical only for straight-down swipes
                       return GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onLongPress: _showQueueCarouselOverlay,
                         onPanStart: (details) {
-                          _gestureStartPosition = details.localPosition;
+                          _panStartPosition = details.globalPosition;
                           _gestureDirectionDecided = false;
                           _isHorizontalGesture = false;
                         },
                         onPanUpdate: (details) {
-                          if (_gestureStartPosition == null) return;
+                          if (_panStartPosition == null) return;
                           
-                          final delta = details.localPosition - _gestureStartPosition!;
-                          final distance = delta.distance;
-                          
-                          // Decide direction once we've moved enough
-                          if (!_gestureDirectionDecided && distance >= _lockDistanceThreshold) {
-                            // Calculate angle from horizontal using atan2 (0° = pure horizontal, 90° = pure vertical)
-                            final angleFromHorizontal = math.atan2(delta.dy.abs(), delta.dx.abs()) * (180 / math.pi);
+                          // Decide gesture direction on first significant movement
+                          if (!_gestureDirectionDecided) {
+                            final delta = details.globalPosition - _panStartPosition!;
+                            final distance = delta.distance;
                             
-                            // Spotify-style: prioritize horizontal unless nearly straight down
-                            // Only treat as vertical if angle > 75° from horizontal AND moving downward
-                            _isHorizontalGesture = angleFromHorizontal < _angleThresholdDegrees || delta.dy < 0;
+                            // Wait for minimum movement before deciding
+                            if (distance < 10) return;
+                            
+                            // Calculate angle from horizontal (0° = right, 90° = down)
+                            // atan2(dy, dx) gives angle in radians
+                            final angle = math.atan2(delta.dy.abs(), delta.dx.abs()) * 180 / math.pi;
+                            
+                            // Spotify-style: Only allow vertical if swipe is nearly straight down
+                            // (within _angleThresholdDegrees of 90°, i.e., angle > 90 - threshold)
+                            // Otherwise, treat as horizontal swipe
+                            final isNearlyVertical = angle > (90 - _angleThresholdDegrees) && delta.dy > 0;
+                            
                             _gestureDirectionDecided = true;
+                            _isHorizontalGesture = !isNearlyVertical;
                             
                             if (_isHorizontalGesture) {
                               ref.read(isAlbumArtSwipingProvider.notifier).state = true;
                               setState(() {
                                 _isSwiping = true;
-                                _swipeOffset = delta.dx;
+                                _swipeOffset = 0.0;
                                 _pendingSwipeDirection = 0;
                               });
                             }
                           }
                           
-                          // Continue horizontal swipe if locked
-                          if (_gestureDirectionDecided && _isHorizontalGesture) {
+                          // Handle horizontal swipe
+                          if (_isHorizontalGesture) {
                             setState(() {
                               _swipeOffset += details.delta.dx;
                               if (_swipeOffset > 80) {
@@ -685,10 +692,9 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                               }
                             });
                           }
+                          // Vertical swipes are ignored here - let SlidingUpPanel handle them
                         },
                         onPanEnd: (details) {
-                          _gestureStartPosition = null;
-                          
                           if (_isHorizontalGesture) {
                             ref.read(isAlbumArtSwipingProvider.notifier).state = false;
                             final velocity = details.velocity.pixelsPerSecond.dx;
@@ -713,6 +719,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                             });
                           }
                           
+                          _panStartPosition = null;
                           _gestureDirectionDecided = false;
                           _isHorizontalGesture = false;
                         },
@@ -767,76 +774,52 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                   
                   const Gap(24),
                   
-                  // Track Info & Like - Swipeable with Spotify-style angle detection
+                  // Track Info & Like - Swipeable
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
-                    onPanStart: (details) {
-                      _gestureStartPosition = details.localPosition;
-                      _gestureDirectionDecided = false;
-                      _isHorizontalGesture = false;
+                    onHorizontalDragStart: (details) {
+                      _gestureDirectionDecided = true;
+                      _isHorizontalGesture = true;
+                      setState(() {
+                        _isSwiping = true;
+                        _swipeOffset = 0.0;
+                        _pendingSwipeDirection = 0;
+                      });
                     },
-                    onPanUpdate: (details) {
-                      if (_gestureStartPosition == null) return;
-                      
-                      final delta = details.localPosition - _gestureStartPosition!;
-                      final distance = delta.distance;
-                      
-                      if (!_gestureDirectionDecided && distance >= _lockDistanceThreshold) {
-                        // Calculate angle from horizontal using atan2 (0° = pure horizontal, 90° = pure vertical)
-                        final angleFromHorizontal = math.atan2(delta.dy.abs(), delta.dx.abs()) * (180 / math.pi);
-                        
-                        // Spotify-style: prioritize horizontal unless nearly straight down
-                        _isHorizontalGesture = angleFromHorizontal < _angleThresholdDegrees || delta.dy < 0;
-                        _gestureDirectionDecided = true;
-                        
-                        if (_isHorizontalGesture) {
-                          setState(() {
-                            _isSwiping = true;
-                            _swipeOffset = delta.dx;
-                            _pendingSwipeDirection = 0;
-                          });
-                        }
-                      }
-                      
-                      if (_gestureDirectionDecided && _isHorizontalGesture) {
-                        setState(() {
-                          _swipeOffset += details.delta.dx;
-                          if (_swipeOffset > 80) {
-                            _pendingSwipeDirection = -1;
-                          } else if (_swipeOffset < -80) {
-                            _pendingSwipeDirection = 1;
-                          } else {
-                            _pendingSwipeDirection = 0;
-                          }
-                        });
-                      }
-                    },
-                    onPanEnd: (details) {
-                      _gestureStartPosition = null;
-                      
-                      if (_isHorizontalGesture) {
-                        final velocity = details.velocity.pixelsPerSecond.dx;
-                        final fastSwipe = velocity.abs() > 800 && _swipeOffset.abs() > 30;
-                        
-                        if (_pendingSwipeDirection != 0 || fastSwipe) {
-                          final direction = fastSwipe && _pendingSwipeDirection == 0
-                              ? (velocity > 0 ? -1 : 1)
-                              : _pendingSwipeDirection;
-                          
-                          if (direction == 1) {
-                            audioService.skipToNext();
-                          } else if (direction == -1) {
-                            audioService.skipToPrevious(forceSkip: true);
-                          }
-                        }
-                        
-                        setState(() {
-                          _isSwiping = false;
-                          _swipeOffset = 0.0;
+                    onHorizontalDragUpdate: (details) {
+                      if (!_isHorizontalGesture) return;
+                      setState(() {
+                        _swipeOffset += details.delta.dx;
+                        if (_swipeOffset > 80) {
+                          _pendingSwipeDirection = -1;
+                        } else if (_swipeOffset < -80) {
+                          _pendingSwipeDirection = 1;
+                        } else {
                           _pendingSwipeDirection = 0;
-                        });
+                        }
+                      });
+                    },
+                    onHorizontalDragEnd: (details) {
+                      final velocity = details.primaryVelocity ?? 0.0;
+                      final fastSwipe = velocity.abs() > 800 && _swipeOffset.abs() > 30;
+                      
+                      if (_pendingSwipeDirection != 0 || fastSwipe) {
+                        final direction = fastSwipe && _pendingSwipeDirection == 0
+                            ? (velocity > 0 ? -1 : 1)
+                            : _pendingSwipeDirection;
+                        
+                        if (direction == 1) {
+                          audioService.skipToNext();
+                        } else if (direction == -1) {
+                          audioService.skipToPrevious(forceSkip: true);
+                        }
                       }
                       
+                      setState(() {
+                        _isSwiping = false;
+                        _swipeOffset = 0.0;
+                        _pendingSwipeDirection = 0;
+                      });
                       _gestureDirectionDecided = false;
                       _isHorizontalGesture = false;
                     },

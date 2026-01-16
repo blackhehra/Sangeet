@@ -203,6 +203,7 @@ class _DesktopPlayerBarState extends ConsumerState<DesktopPlayerBar> {
                                         : Colors.grey,
                                   ),
                                   visualDensity: VisualDensity.compact,
+                                  tooltip: audioService.isShuffled ? 'Shuffle Off' : 'Shuffle',
                                 ),
                                 const Gap(8),
                                 
@@ -211,6 +212,7 @@ class _DesktopPlayerBarState extends ConsumerState<DesktopPlayerBar> {
                                   onPressed: () => audioService.skipToPrevious(),
                                   icon: const Icon(Iconsax.previous, size: 24),
                                   visualDensity: VisualDensity.compact,
+                                  tooltip: 'Previous',
                                 ),
                                 const Gap(8),
                                 
@@ -259,6 +261,7 @@ class _DesktopPlayerBarState extends ConsumerState<DesktopPlayerBar> {
                                   onPressed: () => audioService.skipToNext(),
                                   icon: const Icon(Iconsax.next, size: 24),
                                   visualDensity: VisualDensity.compact,
+                                  tooltip: 'Next',
                                 ),
                                 const Gap(8),
                                 
@@ -275,6 +278,11 @@ class _DesktopPlayerBarState extends ConsumerState<DesktopPlayerBar> {
                                         : Colors.grey,
                                   ),
                                   visualDensity: VisualDensity.compact,
+                                  tooltip: audioService.repeatMode == RepeatMode.off 
+                                      ? 'Repeat' 
+                                      : audioService.repeatMode == RepeatMode.all 
+                                          ? 'Repeat One' 
+                                          : 'Repeat Off',
                                 ),
                               ],
                             ),
@@ -333,12 +341,22 @@ class _DesktopPlayerBarState extends ConsumerState<DesktopPlayerBar> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
-                            // Now playing view toggle
-                            IconButton(
-                              onPressed: () {},
-                              icon: const Icon(Iconsax.music_playlist, size: 20),
-                              visualDensity: VisualDensity.compact,
-                              color: Colors.grey,
+                            // Queue toggle button
+                            Builder(
+                              builder: (context) {
+                                final panelView = ref.watch(desktopPanelViewProvider);
+                                final isQueueView = panelView == DesktopPanelView.queue;
+                                return IconButton(
+                                  onPressed: () {
+                                    ref.read(desktopPanelViewProvider.notifier).state = 
+                                        isQueueView ? DesktopPanelView.nowPlaying : DesktopPanelView.queue;
+                                  },
+                                  icon: const Icon(Iconsax.music_playlist, size: 20),
+                                  visualDensity: VisualDensity.compact,
+                                  color: isQueueView ? AppTheme.primaryColor : Colors.grey,
+                                  tooltip: isQueueView ? 'Now Playing' : 'Queue',
+                                );
+                              },
                             ),
                             
                             // Device picker
@@ -347,80 +365,98 @@ class _DesktopPlayerBarState extends ConsumerState<DesktopPlayerBar> {
                               icon: const Icon(Iconsax.monitor, size: 20),
                               visualDensity: VisualDensity.compact,
                               color: Colors.grey,
+                              tooltip: 'Connect to a device',
                             ),
                             
                             // Volume
-                            MouseRegion(
-                              cursor: SystemMouseCursors.click,
-                              child: GestureDetector(
-                                onTap: () {
-                                  setState(() {
-                                    if (_volume > 0) {
-                                      _volume = 0;
-                                    } else {
-                                      _volume = 1.0;
-                                    }
-                                    audioService.setVolume(_volume);
-                                  });
-                                },
-                                child: Icon(
-                                  _volume == 0 
-                                      ? Iconsax.volume_slash 
-                                      : _volume < 0.5 
-                                          ? Iconsax.volume_low 
-                                          : Iconsax.volume_high,
-                                  size: 20,
-                                  color: Colors.grey,
+                            Tooltip(
+                              message: _volume == 0 ? 'Unmute' : 'Mute',
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                child: GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      if (_volume > 0) {
+                                        _volume = 0;
+                                      } else {
+                                        _volume = 1.0;
+                                      }
+                                      audioService.setVolume(_volume);
+                                    });
+                                  },
+                                  child: Icon(
+                                    _volume == 0 
+                                        ? Iconsax.volume_slash 
+                                        : _volume < 0.5 
+                                            ? Iconsax.volume_low 
+                                            : Iconsax.volume_high,
+                                    size: 20,
+                                    color: Colors.grey,
+                                  ),
                                 ),
                               ),
                             ),
                             const Gap(8),
-                            SizedBox(
-                              width: 100,
-                              child: SliderTheme(
-                                data: SliderTheme.of(context).copyWith(
-                                  trackHeight: 4,
-                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
-                                  activeTrackColor: Colors.white,
-                                  inactiveTrackColor: Colors.grey.shade700,
-                                  thumbColor: Colors.white,
-                                ),
-                                child: Slider(
-                                  value: _volume,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _volume = value;
-                                    });
-                                    audioService.setVolume(value);
-                                  },
+                            Tooltip(
+                              message: 'Volume: ${(_volume * 100).round()}%',
+                              child: SizedBox(
+                                width: 100,
+                                child: SliderTheme(
+                                  data: SliderTheme.of(context).copyWith(
+                                    trackHeight: 4,
+                                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+                                    activeTrackColor: Colors.white,
+                                    inactiveTrackColor: Colors.grey.shade700,
+                                    thumbColor: Colors.white,
+                                  ),
+                                  child: Slider(
+                                    value: _volume,
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _volume = value;
+                                      });
+                                      audioService.setVolume(value);
+                                    },
+                                  ),
                                 ),
                               ),
                             ),
                             
-                            // Fullscreen / Full Player
+                            // Fullscreen / Full Player toggle
                             MouseRegion(
                               cursor: SystemMouseCursors.click,
                               child: IconButton(
                                 onPressed: () {
-                                  Navigator.of(context).push(
-                                    PageRouteBuilder(
-                                      opaque: true,
-                                      pageBuilder: (context, animation, secondaryAnimation) => 
-                                          _isDesktop ? const DesktopFullPlayer() : const PlayerPage(),
-                                      transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                                        return FadeTransition(
-                                          opacity: animation,
-                                          child: child,
-                                        );
-                                      },
-                                      transitionDuration: const Duration(milliseconds: 200),
-                                    ),
-                                  );
+                                  // Check if we can pop (meaning we're in full player)
+                                  if (Navigator.of(context).canPop()) {
+                                    Navigator.of(context).pop();
+                                  } else {
+                                    Navigator.of(context).push(
+                                      PageRouteBuilder(
+                                        opaque: true,
+                                        pageBuilder: (context, animation, secondaryAnimation) => 
+                                            _isDesktop ? const DesktopFullPlayer() : const PlayerPage(),
+                                        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                                          return FadeTransition(
+                                            opacity: animation,
+                                            child: child,
+                                          );
+                                        },
+                                        transitionDuration: const Duration(milliseconds: 200),
+                                      ),
+                                    );
+                                  }
                                 },
-                                icon: const Icon(Iconsax.maximize_4, size: 20),
+                                icon: Icon(
+                                  Navigator.of(context).canPop() 
+                                      ? Iconsax.maximize_circle // Arrows facing inward (minimize)
+                                      : Iconsax.maximize_4, // Arrows facing outward (maximize)
+                                  size: 20,
+                                ),
                                 visualDensity: VisualDensity.compact,
                                 color: Colors.grey,
+                                tooltip: Navigator.of(context).canPop() ? 'Minimize' : 'Full Player',
                               ),
                             ),
                           ],

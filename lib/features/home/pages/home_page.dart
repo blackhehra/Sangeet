@@ -153,7 +153,7 @@ class HomePage extends ConsumerWidget {
                       imageGradient: const LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
-                        colors: [Color(0xFF8E44AD), Color(0xFF3498DB)],
+                        colors: [Color(0xFFFF8C00), Color(0xFFFFD700)],
                       ),
                       icon: Icons.playlist_play,
                       onTap: () {

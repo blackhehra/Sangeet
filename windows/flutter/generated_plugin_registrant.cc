@@ -8,7 +8,7 @@
 
 #include <app_links/app_links_plugin_c_api.h>
 #include <desktop_webview_window/desktop_webview_window_plugin.h>
-#include <flutter_blue_plus_winrt/flutter_blue_plus_plugin.h>
+#include <flutter_blue_plus_winrt/flutter_blue_plus_winrt_plugin.h>
 #include <flutter_inappwebview_windows/flutter_inappwebview_windows_plugin_c_api.h>
 #include <flutter_secure_storage_windows/flutter_secure_storage_windows_plugin.h>
 #include <flutter_timezone/flutter_timezone_plugin_c_api.h>
@@ -24,8 +24,8 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
       registry->GetRegistrarForPlugin("AppLinksPluginCApi"));
   DesktopWebviewWindowPluginRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("DesktopWebviewWindowPlugin"));
-  FlutterBluePlusPluginRegisterWithRegistrar(
-      registry->GetRegistrarForPlugin("FlutterBluePlusPlugin"));
+  FlutterBluePlusWinrtPluginRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("FlutterBluePlusWinrtPlugin"));
   FlutterInappwebviewWindowsPluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("FlutterInappwebviewWindowsPluginCApi"));
   FlutterSecureStorageWindowsPluginRegisterWithRegistrar(

@@ -27,7 +27,7 @@ topics:
   - youtube
   - audio-player
 publish_to: 'none'
-version: 1.0.3-beta+3
+version: 2.0.0-beta
 
 environment:
   sdk: ^3.9.2
@@ -145,6 +145,9 @@ dev_dependencies:
 dependency_overrides:
   fk_user_agent:
     path: packages/fk_user_agent
+  # Disable broken flutter_blue_plus_winrt plugin on Windows
+  flutter_blue_plus_winrt:
+    path: packages/flutter_blue_plus_winrt_stub
 
 flutter_launcher_icons:
   android: true

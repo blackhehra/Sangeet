@@ -11,6 +11,7 @@ import 'package:sangeet/features/desktop/widgets/desktop_now_playing_panel.dart'
 import 'package:sangeet/features/desktop/widgets/desktop_player_bar.dart';
 import 'package:sangeet/models/spotify_models.dart';
 import 'package:sangeet/shared/providers/desktop_navigation_provider.dart';
+import 'package:sangeet/shared/providers/audio_provider.dart';
 
 class DesktopShell extends ConsumerStatefulWidget {
   const DesktopShell({super.key});
@@ -199,15 +200,21 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
                   ),
                 ),
                 
-                // Right Panel (Now Playing)
-                Container(
-                  margin: const EdgeInsets.only(left: 8, top: 8, bottom: 8, right: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF121212),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: const DesktopNowPlayingPanel(),
+                // Right Panel (Now Playing) - Resizable
+                Builder(
+                  builder: (context) {
+                    final panelWidth = ref.watch(desktopPanelWidthProvider);
+                    return Container(
+                      width: panelWidth,
+                      margin: const EdgeInsets.only(left: 0, top: 8, bottom: 8, right: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF121212),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: const DesktopNowPlayingPanel(),
+                    );
+                  },
                 ),
               ],
             ),

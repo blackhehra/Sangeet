@@ -1,0 +1,17 @@
+name: flutter_blue_plus_winrt
+description: Stub package to disable flutter_blue_plus_winrt on Windows (broken plugin)
+version: 1.0.0
+
+environment:
+  sdk: ^3.0.0
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      windows:
+        pluginClass: FlutterBluePlusWinrtPlugin

@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -52,6 +54,12 @@ class BluetoothAudioService {
 
     // Emit initial null value to prevent loading state
     _connectedDeviceController.add(null);
+
+    // Skip Bluetooth on Windows due to flutter_blue_plus_winrt plugin build issues
+    if (!kIsWeb && Platform.isWindows) {
+      print('BluetoothAudioService: Skipping on Windows (plugin not supported)');
+      return;
+    }
 
     try {
       // Check if we have Bluetooth permissions first

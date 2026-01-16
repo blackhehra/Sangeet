@@ -6,6 +6,9 @@ import 'package:gap/gap.dart';
 import 'package:sangeet/core/theme/app_theme.dart';
 import 'package:sangeet/shared/providers/audio_provider.dart';
 import 'package:sangeet/models/track.dart';
+import 'package:sangeet/services/audio_player_service.dart';
+import 'package:sangeet/shared/widgets/playing_indicator.dart';
+import 'package:sangeet/features/lyrics/widgets/lyrics_mini_card.dart';
 
 class DesktopNowPlayingPanel extends ConsumerWidget {
   const DesktopNowPlayingPanel({super.key});
@@ -13,20 +16,57 @@ class DesktopNowPlayingPanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final currentTrack = ref.watch(currentTrackProvider);
+    final panelView = ref.watch(desktopPanelViewProvider);
+    final panelWidth = ref.watch(desktopPanelWidthProvider);
 
-    return Container(
-      width: 280,
-      color: const Color(0xFF121212),
-      child: currentTrack.when(
-        data: (track) {
-          if (track == null) {
-            return const SizedBox.shrink();
-          }
-          return _NowPlayingContent(track: track);
-        },
-        loading: () => const SizedBox.shrink(),
-        error: (_, __) => const SizedBox.shrink(),
-      ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Resize handle on the left edge
+        MouseRegion(
+          cursor: SystemMouseCursors.resizeColumn,
+          child: GestureDetector(
+            onHorizontalDragUpdate: (details) {
+              final newWidth = panelWidth - details.delta.dx;
+              ref.read(desktopPanelWidthProvider.notifier).state = 
+                  newWidth.clamp(kMinPanelWidth, kMaxPanelWidth);
+            },
+            child: Container(
+              width: 4,
+              color: Colors.transparent,
+              child: Center(
+                child: Container(
+                  width: 2,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade800,
+                    borderRadius: BorderRadius.circular(1),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        // Panel content
+        Container(
+          width: panelWidth - 4,
+          color: const Color(0xFF121212),
+          child: currentTrack.when(
+            data: (track) {
+              if (track == null) {
+                return const SizedBox.shrink();
+              }
+              // Show queue or now playing based on panel view state
+              if (panelView == DesktopPanelView.queue) {
+                return const _QueueContent();
+              }
+              return _NowPlayingContent(track: track);
+            },
+            loading: () => const SizedBox.shrink(),
+            error: (_, __) => const SizedBox.shrink(),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -152,7 +192,12 @@ class _NowPlayingContent extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
           
-          const Gap(24),
+          const Gap(16),
+          
+          // Lyrics Mini Card
+          const LyricsMiniCard(),
+          
+          const Gap(16),
           
           // About the artist section
           const Text(
@@ -281,6 +326,157 @@ class _CreditItem extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _QueueContent extends ConsumerWidget {
+  const _QueueContent();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final queue = ref.watch(queueProvider);
+    final audioService = ref.watch(audioPlayerServiceProvider);
+    final currentIndex = audioService.currentIndex;
+    final isPlaying = ref.watch(isPlayingProvider).valueOrNull ?? false;
+
+    return Column(
+      children: [
+        // Header
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              const Text(
+                'Queue',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () {
+                  audioService.clearQueue();
+                },
+                child: const Text(
+                  'Clear',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+        
+        // Queue List
+        Expanded(
+          child: queue.when(
+            data: (tracks) {
+              if (tracks.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Iconsax.music_playlist,
+                        size: 48,
+                        color: Colors.grey.shade700,
+                      ),
+                      const Gap(16),
+                      Text(
+                        'Queue is empty',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+              
+              return ListView.builder(
+                padding: const EdgeInsets.only(bottom: 100),
+                itemCount: tracks.length,
+                itemBuilder: (context, index) {
+                  final track = tracks[index];
+                  final isCurrentTrack = index == currentIndex;
+                  
+                  return ListTile(
+                    dense: true,
+                    onTap: () {
+                      audioService.skipToIndex(index);
+                    },
+                    leading: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: CachedNetworkImage(
+                        imageUrl: track.thumbnailUrl ?? '',
+                        width: 40,
+                        height: 40,
+                        fit: BoxFit.cover,
+                        errorWidget: (context, url, error) => Container(
+                          width: 40,
+                          height: 40,
+                          color: AppTheme.darkCard,
+                          child: const Icon(Iconsax.music, color: Colors.grey, size: 16),
+                        ),
+                      ),
+                    ),
+                    title: Row(
+                      children: [
+                        if (isCurrentTrack) ...[
+                          PlayingIndicator(
+                            isPlaying: isPlaying,
+                            size: 12,
+                            color: AppTheme.primaryColor,
+                          ),
+                          const Gap(6),
+                        ],
+                        Expanded(
+                          child: Text(
+                            track.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: isCurrentTrack ? AppTheme.primaryColor : Colors.white,
+                              fontWeight: isCurrentTrack ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    subtitle: Text(
+                      track.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
+                    trailing: isCurrentTrack
+                        ? null
+                        : IconButton(
+                            onPressed: () {
+                              audioService.removeFromQueue(index);
+                            },
+                            icon: Icon(
+                              Iconsax.close_circle,
+                              size: 18,
+                              color: Colors.grey.shade600,
+                            ),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                  );
+                },
+              );
+            },
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (_, __) => const Center(child: Text('Error loading queue')),
+          ),
+        ),
+      ],
     );
   }
 }

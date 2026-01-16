@@ -184,7 +184,7 @@ class DesktopHomePage extends ConsumerWidget {
                       _DesktopQuickTile(
                         title: 'My Playlists',
                         gradient: const LinearGradient(
-                          colors: [Color(0xFF8E44AD), Color(0xFF3498DB)],
+                          colors: [Color(0xFFFF8C00), Color(0xFFFFD700)],
                         ),
                         icon: Iconsax.music_playlist,
                         onTap: () {

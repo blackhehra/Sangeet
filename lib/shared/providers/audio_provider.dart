@@ -73,3 +73,19 @@ final hasRestoredTrackProvider = Provider<bool>((ref) {
   final service = ref.watch(audioPlayerServiceProvider);
   return service.hasRestoredTrack;
 });
+
+// Desktop Right Panel View Mode - toggles between Now Playing and Queue
+enum DesktopPanelView { nowPlaying, queue }
+
+final desktopPanelViewProvider = StateProvider<DesktopPanelView>((ref) {
+  return DesktopPanelView.nowPlaying;
+});
+
+// Desktop Now Playing Panel Width - resizable by user
+const double kDefaultPanelWidth = 280.0;
+const double kMinPanelWidth = 200.0;
+const double kMaxPanelWidth = 400.0;
+
+final desktopPanelWidthProvider = StateProvider<double>((ref) {
+  return kDefaultPanelWidth;
+});

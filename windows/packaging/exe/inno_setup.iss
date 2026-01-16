@@ -2,7 +2,7 @@
 ; Based on Spotube's setup structure
 
 #define MyAppName "Sangeet"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "2.0.0-beta"
 #define MyAppPublisher "Sangeet"
 #define MyAppURL "https://github.com/sangeet-app"
 #define MyAppExeName "sangeet.exe"

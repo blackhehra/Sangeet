@@ -257,7 +257,7 @@ class _SpotifyPluginLoginPageState extends ConsumerState<SpotifyPluginLoginPage>
               
               // Info text
               Text(
-                'This uses the same authentication method as Spotube.\nYour credentials are stored securely on your device.',
+                'This uses the same authentication method as Spotify.\nYour credentials are stored securely on your device.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Colors.grey,
                 ),

@@ -144,7 +144,6 @@ class RecommendationService {
   Future<List<String>> getForYouSearchQueries() async {
     final queries = <String>[];
     final tasteService = UserTasteService.instance;
-    await tasteService.init();
     
     // Get top artists from listening history
     final topArtists = tasteService.getTopDiscoveredArtists(limit: 3);

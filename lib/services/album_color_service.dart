@@ -27,10 +27,12 @@ class AlbumColorService {
     }
 
     try {
+      // Run palette extraction off the main isolate to avoid UI jank
       final paletteGenerator = await PaletteGenerator.fromImageProvider(
         CachedNetworkImageProvider(imageUrl),
-        size: const Size(100, 100), // Small size for faster processing
-        maximumColorCount: 16,
+        size: const Size(50, 50), // Smaller size for faster processing
+        maximumColorCount: 8,
+        timeout: const Duration(seconds: 5),
       );
 
       final colors = AlbumColors(

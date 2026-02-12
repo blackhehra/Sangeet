@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:gap/gap.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:shimmer/shimmer.dart';
 import 'package:sangeet/core/theme/app_theme.dart';
 import 'package:sangeet/shared/providers/spotify_plugin_provider.dart';
 import 'package:sangeet/services/spotify_plugin/spotify_plugin.dart';
@@ -620,15 +619,11 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
         itemBuilder: (context, index) {
           return Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: Shimmer.fromColors(
-              baseColor: AppTheme.darkCard,
-              highlightColor: AppTheme.darkCardHover,
-              child: Container(
-                width: 140,
-                decoration: BoxDecoration(
-                  color: AppTheme.darkCard,
-                  borderRadius: BorderRadius.circular(8),
-                ),
+            child: Container(
+              width: 140,
+              decoration: BoxDecoration(
+                color: AppTheme.darkCard,
+                borderRadius: BorderRadius.circular(8),
               ),
             ),
           );
@@ -692,23 +687,31 @@ class _TrackCard extends StatelessWidget {
                       ),
               ),
             ),
-            const Gap(8),
-            Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontWeight: FontWeight.w500,
-                fontSize: 13,
-              ),
-            ),
-            Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.grey.shade400,
-                fontSize: 12,
+            const Gap(6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 13,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.grey.shade400,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -822,13 +825,6 @@ class _PlaylistCard extends StatelessWidget {
               height: 140,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
@@ -849,6 +845,8 @@ class _PlaylistCard extends StatelessWidget {
                         ? CachedNetworkImage(
                             imageUrl: imageUrl!,
                             fit: BoxFit.cover,
+                            memCacheWidth: 280,
+                            memCacheHeight: 280,
                             errorWidget: (_, __, ___) => Container(
                               color: AppTheme.darkCard,
                               child: const Icon(Iconsax.music_playlist, color: Colors.grey, size: 40),
@@ -914,13 +912,6 @@ class _AlbumCard extends StatelessWidget {
               height: 140,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
@@ -928,6 +919,8 @@ class _AlbumCard extends StatelessWidget {
                     ? CachedNetworkImage(
                         imageUrl: imageUrl!,
                         fit: BoxFit.cover,
+                        memCacheWidth: 280,
+                        memCacheHeight: 280,
                         errorWidget: (_, __, ___) => Container(
                           color: AppTheme.darkCard,
                           child: const Icon(Iconsax.music_square, color: Colors.grey, size: 40),
@@ -991,13 +984,6 @@ class _BrowseItemCard extends StatelessWidget {
               height: 140,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(isArtist ? 70 : 8),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(isArtist ? 70 : 8),
@@ -1005,6 +991,8 @@ class _BrowseItemCard extends StatelessWidget {
                     ? CachedNetworkImage(
                         imageUrl: item.imageUrl!,
                         fit: BoxFit.cover,
+                        memCacheWidth: 280,
+                        memCacheHeight: 280,
                         errorWidget: (_, __, ___) => Container(
                           color: AppTheme.darkCard,
                           child: Icon(

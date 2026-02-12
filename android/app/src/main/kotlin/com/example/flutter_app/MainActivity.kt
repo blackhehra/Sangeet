@@ -5,12 +5,16 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.Context
+import android.content.Intent
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.net.Uri
 import android.os.Build
+import androidx.core.content.FileProvider
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 class MainActivity : AudioServiceActivity() {
     private val CHANNEL = "com.example.flutter_app/native"
@@ -33,6 +37,15 @@ class MainActivity : AudioServiceActivity() {
                 "greetFromKotlin" -> {
                     val name = call.argument<String>("name") ?: "User"
                     result.success(greetFromKotlin(name))
+                }
+                "installApk" -> {
+                    val filePath = call.argument<String>("filePath")
+                    if (filePath != null) {
+                        val success = installApk(filePath)
+                        result.success(success)
+                    } else {
+                        result.error("INVALID_PATH", "File path is null", null)
+                    }
                 }
                 else -> result.notImplemented()
             }
@@ -62,6 +75,38 @@ class MainActivity : AudioServiceActivity() {
     // Kotlin native function - greeting
     private fun greetFromKotlin(name: String): String {
         return "Hello $name! This message comes from Kotlin 🎉"
+    }
+    
+    // Install APK using FileProvider for Android 7+ (API 24+)
+    private fun installApk(filePath: String): Boolean {
+        return try {
+            val file = File(filePath)
+            if (!file.exists()) {
+                android.util.Log.e("AppUpdate", "APK file not found: $filePath")
+                return false
+            }
+            
+            val uri: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                FileProvider.getUriForFile(
+                    this,
+                    "${applicationContext.packageName}.fileprovider",
+                    file
+                )
+            } else {
+                Uri.fromFile(file)
+            }
+            
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+            }
+            startActivity(intent)
+            android.util.Log.d("AppUpdate", "Install intent launched for: $filePath")
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("AppUpdate", "Failed to install APK: ${e.message}", e)
+            false
+        }
     }
     
     // Get connected Bluetooth audio device asynchronously using BluetoothProfile

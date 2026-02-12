@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sliding_up_panel/sliding_up_panel.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'dart:ui';
 import 'package:sangeet/core/theme/app_theme.dart';
 import 'package:sangeet/features/home/pages/home_page.dart';
 import 'package:sangeet/features/search/pages/search_page.dart';
@@ -17,6 +16,7 @@ import 'package:sangeet/features/splash/pages/splash_video_page.dart';
 import 'package:sangeet/services/user_preferences_service.dart';
 import 'package:sangeet/services/audio_player_service.dart';
 import 'package:sangeet/services/playback_state_service.dart';
+import 'package:sangeet/services/app_update_service.dart';
 import 'package:sangeet/shared/providers/audio_provider.dart';
 import 'package:sangeet/shared/providers/player_dismiss_provider.dart';
 import 'package:sangeet/main.dart' show rootNavigatorKey;
@@ -70,6 +70,20 @@ class _MainShellState extends ConsumerState<MainShell> with WidgetsBindingObserv
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Check for app updates after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkForUpdates();
+    });
+  }
+
+  Future<void> _checkForUpdates() async {
+    await ref.read(appUpdateProvider.notifier).checkForUpdate();
+    if (mounted) {
+      final updateState = ref.read(appUpdateProvider);
+      if (updateState.hasUpdate) {
+        showUpdateDialog(context, ref);
+      }
+    }
   }
 
   @override
@@ -353,31 +367,26 @@ class _SangeetNavigationBar extends ConsumerWidget {
       left: 0,
       right: 0,
       bottom: -slideOffset, // Negative to slide down
-      child: ClipRRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            height: fixedNavBarHeight,
-            decoration: BoxDecoration(
-              color: Theme.of(context).scaffoldBackgroundColor.withValues(alpha: 0.88),
-              border: Border(
-                top: BorderSide(
-                  color: Colors.grey.shade800,
-                  width: 0.5,
-                ),
-              ),
+      child: Container(
+        height: fixedNavBarHeight,
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor.withValues(alpha: 0.95),
+          border: Border(
+            top: BorderSide(
+              color: Colors.grey.shade800,
+              width: 0.5,
             ),
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 4.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildNavItem(context, Iconsax.home, Iconsax.home_15, "Home", 0, currentIndex),
-                  _buildNavItem(context, Iconsax.search_normal, Iconsax.search_normal_1, "Search", 1, currentIndex),
-                  _buildNavItem(context, Iconsax.music_library_2, Iconsax.music_library_25, "Library", 2, currentIndex),
-                ],
-              ),
-            ),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 4.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildNavItem(context, Iconsax.home, Iconsax.home_15, "Home", 0, currentIndex),
+              _buildNavItem(context, Iconsax.search_normal, Iconsax.search_normal_1, "Search", 1, currentIndex),
+              _buildNavItem(context, Iconsax.music_library_2, Iconsax.music_library_25, "Library", 2, currentIndex),
+            ],
           ),
         ),
       ),
@@ -406,32 +415,24 @@ class _SangeetNavigationBar extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeOutCubic,
-                transform: Matrix4.identity()
-                  ..scale(isSelected ? 1.1 : 1.0),
-                child: Icon(
-                  isSelected ? selectedIcon : icon,
-                  color: isSelected ? Colors.green : Theme.of(context).iconTheme.color,
-                  size: isSelected ? 26 : 24,
-                ),
+              Icon(
+                isSelected ? selectedIcon : icon,
+                color: isSelected ? Colors.green : Theme.of(context).iconTheme.color,
+                size: 24,
               ),
-              const SizedBox(height: 4),
-              AnimatedDefaultTextStyle(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeOutCubic,
+              const SizedBox(height: 2),
+              Text(
+                label,
                 style: TextStyle(
                   color: isSelected ? Colors.green : Theme.of(context).textTheme.bodySmall?.color ?? Colors.grey,
-                  fontSize: isSelected ? 12 : 11,
+                  fontSize: 11,
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                 ),
-                child: Text(label),
               ),
               AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeOutCubic,
-                margin: EdgeInsets.only(top: isSelected ? 4 : 6),
+                margin: EdgeInsets.only(top: isSelected ? 2 : 4),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 300),
                   curve: Curves.easeOutCubic,

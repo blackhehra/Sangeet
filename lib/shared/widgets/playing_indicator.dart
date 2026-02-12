@@ -1,7 +1,9 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:sangeet/core/theme/app_theme.dart';
 
 /// Animated equalizer bars indicator for currently playing song
+/// Uses a single AnimationController with sin() phase offsets for efficiency
 class PlayingIndicator extends StatefulWidget {
   final Color? color;
   final double size;
@@ -19,13 +21,14 @@ class PlayingIndicator extends StatefulWidget {
 }
 
 class _PlayingIndicatorState extends State<PlayingIndicator>
-    with TickerProviderStateMixin {
-  late List<AnimationController> _controllers;
-  late List<Animation<double>> _animations;
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
 
-  // Different durations for each bar to create natural look
-  static const List<int> _durations = [450, 500, 400, 550];
-  // Different height ranges for each bar
+  // Phase offsets for each bar to create natural look
+  static const List<double> _phaseOffsets = [0.0, 1.2, 2.5, 3.8];
+  // Speed multipliers for each bar
+  static const List<double> _speeds = [1.0, 1.3, 0.9, 1.15];
+  // Height ranges [min, max] for each bar
   static const List<List<double>> _heightRanges = [
     [0.3, 1.0],
     [0.4, 0.8],
@@ -36,48 +39,12 @@ class _PlayingIndicatorState extends State<PlayingIndicator>
   @override
   void initState() {
     super.initState();
-    _initAnimations();
-  }
-
-  void _initAnimations() {
-    _controllers = List.generate(4, (index) {
-      return AnimationController(
-        vsync: this,
-        duration: Duration(milliseconds: _durations[index]),
-      );
-    });
-
-    _animations = List.generate(4, (index) {
-      return Tween<double>(
-        begin: _heightRanges[index][0],
-        end: _heightRanges[index][1],
-      ).animate(
-        CurvedAnimation(
-          parent: _controllers[index],
-          curve: Curves.easeInOut,
-        ),
-      );
-    });
-
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    );
     if (widget.isPlaying) {
-      _startAnimations();
-    }
-  }
-
-  void _startAnimations() {
-    for (int i = 0; i < _controllers.length; i++) {
-      // Stagger the start of each bar
-      Future.delayed(Duration(milliseconds: i * 100), () {
-        if (mounted && widget.isPlaying) {
-          _controllers[i].repeat(reverse: true);
-        }
-      });
-    }
-  }
-
-  void _stopAnimations() {
-    for (var controller in _controllers) {
-      controller.stop();
+      _controller.repeat();
     }
   }
 
@@ -86,19 +53,26 @@ class _PlayingIndicatorState extends State<PlayingIndicator>
     super.didUpdateWidget(oldWidget);
     if (widget.isPlaying != oldWidget.isPlaying) {
       if (widget.isPlaying) {
-        _startAnimations();
+        _controller.repeat();
       } else {
-        _stopAnimations();
+        _controller.stop();
       }
     }
   }
 
   @override
   void dispose() {
-    for (var controller in _controllers) {
-      controller.dispose();
-    }
+    _controller.dispose();
     super.dispose();
+  }
+
+  double _barHeight(int index, double animValue) {
+    final phase = _phaseOffsets[index];
+    final speed = _speeds[index];
+    final sinVal = (math.sin((animValue * speed * 2 * math.pi) + phase) + 1.0) / 2.0;
+    final minH = _heightRanges[index][0];
+    final maxH = _heightRanges[index][1];
+    return minH + sinVal * (maxH - minH);
   }
 
   @override
@@ -108,26 +82,26 @@ class _PlayingIndicatorState extends State<PlayingIndicator>
     return SizedBox(
       width: widget.size,
       height: widget.size,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: List.generate(4, (index) {
-          return AnimatedBuilder(
-            animation: _animations[index],
-            builder: (context, child) {
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: List.generate(4, (index) {
               return Container(
                 width: widget.size / 6,
-                height: widget.isPlaying 
-                    ? widget.size * _animations[index].value
-                    : widget.size * 0.4, // Static height when paused
+                height: widget.isPlaying
+                    ? widget.size * _barHeight(index, _controller.value)
+                    : widget.size * 0.4,
                 decoration: BoxDecoration(
                   color: color,
                   borderRadius: BorderRadius.circular(widget.size / 12),
                 ),
               );
-            },
+            }),
           );
-        }),
+        },
       ),
     );
   }

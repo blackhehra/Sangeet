@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'package:sangeet/main.dart' show initializeHeavyServices;
+import 'package:sangeet/main.dart' show initializeAllServices;
 
 class SplashVideoPage extends StatefulWidget {
   final Widget child;
@@ -24,10 +24,12 @@ class SplashVideoPage extends StatefulWidget {
 }
 
 class _SplashVideoPageState extends State<SplashVideoPage> {
-  late final Player _player;
-  late final VideoController _controller;
+  Player? _player;
+  VideoController? _controller;
   bool _showSplash = true;
   bool _videoReady = false;
+  bool _videoFinished = false;
+  bool _isLoading = false;
   Timer? _fallbackTimer;
   StreamSubscription? _playingSubscription;
   StreamSubscription? _completedSubscription;
@@ -36,14 +38,24 @@ class _SplashVideoPageState extends State<SplashVideoPage> {
   @override
   void initState() {
     super.initState();
-    _player = Player();
-    _controller = VideoController(_player);
-    _initVideo();
+    try {
+      final player = Player();
+      _player = player;
+      _controller = VideoController(player);
+      _initVideo();
+    } catch (e) {
+      print('Splash: Player init failed: $e');
+      // Video failed — go straight to loading services
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _onVideoFinished();
+      });
+      return;
+    }
     
-    // Fallback timer in case video fails to load (6 seconds max)
-    _fallbackTimer = Timer(const Duration(seconds: 6), () {
-      if (_showSplash) {
-        _onSplashComplete();
+    // Fallback timer in case video fails to load (4 seconds max)
+    _fallbackTimer = Timer(const Duration(seconds: 4), () {
+      if (!_videoFinished) {
+        _onVideoFinished();
       }
     });
   }
@@ -51,9 +63,8 @@ class _SplashVideoPageState extends State<SplashVideoPage> {
   Future<void> _initVideo() async {
     try {
       // Listen for when video actually starts playing (first frame ready)
-      _playingSubscription = _player.stream.playing.listen((playing) {
+      _playingSubscription = _player!.stream.playing.listen((playing) {
         if (playing && !_videoReady && mounted) {
-          // Small delay to ensure first frame is rendered
           Future.delayed(const Duration(milliseconds: 50), () {
             if (mounted && !_videoReady) {
               setState(() {
@@ -64,26 +75,26 @@ class _SplashVideoPageState extends State<SplashVideoPage> {
         }
       });
 
-      // Listen for video completion
-      _completedSubscription = _player.stream.completed.listen((completed) {
-        if (completed && _showSplash) {
-          _onSplashComplete();
+      // Listen for video completion — video done, now hold and load services
+      _completedSubscription = _player!.stream.completed.listen((completed) {
+        if (completed && !_videoFinished) {
+          _onVideoFinished();
         }
       });
 
-      // Listen for errors
-      _errorSubscription = _player.stream.error.listen((error) {
+      // Listen for errors — video failed, go to loading
+      _errorSubscription = _player!.stream.error.listen((error) {
         print('Splash video error: $error');
-        if (_showSplash) {
-          _onSplashComplete();
+        if (!_videoFinished) {
+          _onVideoFinished();
         }
       });
 
-      // Set volume to 0 first (splash videos are usually silent)
-      await _player.setVolume(0);
+      // Set volume to 0 (splash videos are usually silent)
+      await _player!.setVolume(0);
 
       // Open the video asset and start playing
-      await _player.open(
+      await _player!.open(
         Media('asset:///${widget.videoAsset}'),
         play: true,
       );
@@ -91,28 +102,52 @@ class _SplashVideoPageState extends State<SplashVideoPage> {
       // If duration is specified, use timer instead of waiting for video end
       if (widget.duration != null) {
         Timer(widget.duration!, () {
-          if (_showSplash) {
-            _onSplashComplete();
+          if (!_videoFinished) {
+            _onVideoFinished();
           }
         });
       }
     } catch (e) {
       print('Failed to initialize splash video: $e');
-      // If video fails, skip splash
-      _onSplashComplete();
+      _onVideoFinished();
     }
   }
 
-  void _onSplashComplete() {
+  /// Called when video finishes (or fails). Holds on last frame and starts loading services.
+  void _onVideoFinished() {
+    if (_videoFinished) return;
     _fallbackTimer?.cancel();
-    if (mounted && _showSplash) {
+    
+    if (!mounted) return;
+    
+    // Cancel stream subscriptions but KEEP player alive to hold last frame
+    _playingSubscription?.cancel();
+    _completedSubscription?.cancel();
+    _errorSubscription?.cancel();
+    
+    setState(() {
+      _videoFinished = true;
+      _isLoading = true;
+    });
+    
+    // Now initialize all services while showing the last video frame
+    _loadServices();
+  }
+
+  Future<void> _loadServices() async {
+    try {
+      await initializeAllServices();
+    } catch (e) {
+      print('Services: Initialization error: $e');
+    }
+    
+    // Services loaded — transition to the main app
+    if (mounted) {
       setState(() {
         _showSplash = false;
+        _isLoading = false;
       });
       widget.onComplete?.call();
-      
-      // SpotifyPlugin is now initialized during app startup in main.dart
-      // No need to defer heavy services anymore
     }
   }
 
@@ -122,7 +157,7 @@ class _SplashVideoPageState extends State<SplashVideoPage> {
     _playingSubscription?.cancel();
     _completedSubscription?.cancel();
     _errorSubscription?.cancel();
-    _player.dispose();
+    _player?.dispose();
     super.dispose();
   }
 
@@ -137,24 +172,16 @@ class _SplashVideoPageState extends State<SplashVideoPage> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Show app logo while video is loading
-          if (!_videoReady)
-            Center(
-              child: Image.asset(
-                'assets/images/ic_launcher.png',
-                width: 120,
-                height: 120,
-              ),
-            ),
-          // Video player - only show when first frame is ready to avoid stutter
-          if (_videoReady)
+          // Video player — show when ready, KEEP showing after video ends to hold last frame
+          if (_videoReady && _controller != null)
             Center(
               child: Video(
-                controller: _controller,
+                controller: _controller!,
                 fit: BoxFit.cover,
                 controls: NoVideoControls,
               ),
             ),
+          // Last frame of video stays visible until services finish loading
         ],
       ),
     );

@@ -93,9 +93,6 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
         curve: Curves.easeOutQuart,
       ),
     );
-    _cascadeAnimationController!.addListener(() {
-      setState(() {});
-    });
     _cascadeAnimationController!.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
         _animationDirection = 0;
@@ -356,10 +353,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                   width: artSize,
                   height: artSize,
                   fit: BoxFit.cover,
-                  memCacheWidth: 1080,
-                  memCacheHeight: 1080,
-                  maxWidthDiskCache: 1080,
-                  maxHeightDiskCache: 1080,
+                  memCacheWidth: 720,
+                  memCacheHeight: 720,
+                  maxWidthDiskCache: 720,
+                  maxHeightDiskCache: 720,
                   errorWidget: (context, url, error) => CachedNetworkImage(
                     imageUrl: _getFallbackThumbnail(url),
                     width: artSize,
@@ -619,7 +616,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                   
                   // Album Art - with inline queue carousel on long press
                   AnimatedBuilder(
-                    animation: _carouselAnimation ?? const AlwaysStoppedAnimation(0.0),
+                    animation: Listenable.merge([
+                      _carouselAnimation ?? const AlwaysStoppedAnimation(0.0),
+                      _cascadeAnimation ?? const AlwaysStoppedAnimation(0.0),
+                    ]),
                     builder: (context, child) {
                       final carouselValue = _carouselAnimation?.value ?? 0.0;
                       final artSize = size.width * 0.75;

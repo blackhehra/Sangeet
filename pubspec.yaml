@@ -27,7 +27,7 @@ topics:
   - youtube
   - audio-player
 publish_to: 'none'
-version: 2.0.0-beta
+version: 2.0.1-beta
 
 environment:
   sdk: ^3.9.2
@@ -55,9 +55,9 @@ dependencies:
   font_awesome_flutter: ^10.7.0
   
   # Audio/Video Player (media_kit_libs_video includes audio support)
-  media_kit: ^1.1.11
-  media_kit_video: ^1.2.5
-  media_kit_libs_video: ^1.0.5
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7
   audio_service: ^0.18.15
   audio_session: ^0.1.21
   
@@ -74,7 +74,7 @@ dependencies:
   flutter_dotenv: ^5.1.0
   rxdart: ^0.28.0
   url_launcher: ^6.2.5
-  package_info_plus: ^4.2.0
+  package_info_plus: ^9.0.0
   
   # Sharing
   share_plus: ^7.2.0
@@ -103,7 +103,7 @@ dependencies:
   webview_flutter: ^4.10.0
   flutter_inappwebview: ^6.1.5
   otp: ^3.1.4
-  flutter_secure_storage: ^9.2.2
+  flutter_secure_storage: ^10.0.0
   dio: ^5.7.0
   
   # Plugin System (for music metadata)
@@ -140,6 +140,7 @@ dev_dependencies:
   freezed: ^2.5.2
   json_serializable: ^6.6.2
   flutter_launcher_icons: ^0.14.3
+  flutter_native_splash: ^2.4.3
 
 # Permanent fix: Use local copy of fk_user_agent with compileSdk 36
 dependency_overrides:
@@ -148,6 +149,14 @@ dependency_overrides:
   # Disable broken flutter_blue_plus_winrt plugin on Windows
   flutter_blue_plus_winrt:
     path: packages/flutter_blue_plus_winrt_stub
+
+flutter_native_splash:
+  color: "#000000"
+  image: "assets/images/ic_launcher.png"
+  android_12:
+    color: "#000000"
+    image: "assets/images/ic_launcher.png"
+    icon_background_color: "#000000"
 
 flutter_launcher_icons:
   android: true

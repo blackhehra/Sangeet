@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:shimmer/shimmer.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:sangeet/core/theme/app_theme.dart';
 import 'package:sangeet/models/track.dart';
@@ -53,13 +52,6 @@ class TrackCard extends ConsumerWidget {
                   height: 150,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
@@ -67,15 +59,11 @@ class TrackCard extends ConsumerWidget {
                         ? CachedNetworkImage(
                             imageUrl: _getHighQualityThumbnail(track.thumbnailUrl!),
                             fit: BoxFit.cover,
-                            memCacheWidth: 720,
-                            memCacheHeight: 720,
+                            memCacheWidth: 300,
+                            memCacheHeight: 300,
                             fadeInDuration: const Duration(milliseconds: 200),
-                            placeholder: (context, url) => Shimmer.fromColors(
-                              baseColor: AppTheme.darkCard,
-                              highlightColor: AppTheme.darkCardHover,
-                              child: Container(
-                                color: AppTheme.darkCard,
-                              ),
+                            placeholder: (context, url) => Container(
+                              color: AppTheme.darkCard,
                             ),
                             // Fallback to hqdefault if maxresdefault fails
                             errorWidget: (context, url, error) => CachedNetworkImage(
@@ -134,13 +122,6 @@ class TrackCard extends ConsumerWidget {
                       decoration: BoxDecoration(
                         color: AppTheme.primaryColor,
                         shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppTheme.primaryColor.withOpacity(0.4),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
                       ),
                       child: isCurrentTrack
                           ? PlayingIndicator(
@@ -158,41 +139,50 @@ class TrackCard extends ConsumerWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            // Title with playing indicator
-            Row(
-              children: [
-                if (isCurrentTrack) ...[
-                  PlayingIndicator(
-                    isPlaying: isPlaying,
-                    size: 12,
-                    color: AppTheme.primaryColor,
+            const SizedBox(height: 6),
+            // Title and artist - use Expanded to prevent overflow with large system fonts
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Title with playing indicator
+                  Row(
+                    children: [
+                      if (isCurrentTrack) ...[
+                        PlayingIndicator(
+                          isPlaying: isPlaying,
+                          size: 12,
+                          color: AppTheme.primaryColor,
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                      Expanded(
+                        child: Text(
+                          track.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                            color: isCurrentTrack ? AppTheme.primaryColor : null,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 4),
-                ],
-                Expanded(
-                  child: Text(
-                    track.title,
+                  const SizedBox(height: 2),
+                  // Artist
+                  Text(
+                    track.artist,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                      color: isCurrentTrack ? AppTheme.primaryColor : null,
+                      color: Colors.grey.shade400,
+                      fontSize: 12,
                     ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 2),
-            // Artist
-            Text(
-              track.artist,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.grey.shade400,
-                fontSize: 12,
+                ],
               ),
             ),
           ],

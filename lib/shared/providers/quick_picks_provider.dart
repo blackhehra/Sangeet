@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sangeet/models/track.dart';
@@ -66,6 +67,9 @@ class QuickPicksNotifier extends StateNotifier<QuickPicksState> {
     refresh();
   }
 
+  /// Time-based rotation index — changes every 3 hours for variety
+  int _rotationIndex() => DateTime.now().hour ~/ 3;
+
   /// Load quick picks based on user's listening history
   Future<void> load() async {
     if (state.isLoading) return;
@@ -73,23 +77,25 @@ class QuickPicksNotifier extends StateNotifier<QuickPicksState> {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
-      // Get seed song based on source - with randomization for variety
+      final random = Random();
+      
+      // Get seed song based on source - with TIME-BASED rotation for variety
+      // Instead of always picking the #1 trending/recent, rotate through top N
       SongStats? seedSong;
       
       if (_source == QuickPicksSource.trending) {
-        // Get from top trending songs with randomization for variety
-        final trending = _historyService.getTrendingSongs(limit: 5);
+        final trending = _historyService.getTrendingSongs(limit: 10);
         if (trending.isNotEmpty) {
-          // Randomly pick from top 5 trending songs for variety
-          trending.shuffle();
-          seedSong = trending.first;
+          // Use time-based rotation + random offset so different sessions pick different seeds
+          final idx = (_rotationIndex() + random.nextInt(trending.length)) % trending.length;
+          seedSong = trending[idx];
         }
       } else {
-        // Get from recent songs with randomization
-        final recentSongs = _historyService.getRecentSongs(limit: 5);
+        final recentSongs = _historyService.getRecentSongs(limit: 10);
         if (recentSongs.isNotEmpty) {
-          recentSongs.shuffle();
-          seedSong = recentSongs.first;
+          // Rotate through recent songs, not always the most recent
+          final idx = (_rotationIndex() + random.nextInt(recentSongs.length)) % recentSongs.length;
+          seedSong = recentSongs[idx];
         } else {
           seedSong = _historyService.getMostRecentSong();
         }
@@ -126,81 +132,103 @@ class QuickPicksNotifier extends StateNotifier<QuickPicksState> {
       // Fetch related page from Innertube API (for artists, albums, playlists)
       final relatedPage = await _innertubeService.getRelatedPage(seedSong.songId);
 
-      // IMPROVED ALGORITHM: Fetch diverse songs based on multiple factors
-      // Goal: Show similar TYPE of music, not just same artist
+      // IMPROVED ALGORITHM: Use MULTIPLE seed songs + language blend for variety
       await _ytMusicService.init();
       final artistName = seedSong.artist ?? '';
       final songTitle = seedSong.title ?? '';
       
-      // Get multiple seed songs for variety (use different recent songs)
-      final recentSongs = _historyService.getRecentSongs(limit: 5);
-      final trendingSongs = _historyService.getTrendingSongs(limit: 5);
+      // Get MULTIPLE seed songs for variety — pick from both recent and trending
+      final recentSongs = _historyService.getRecentSongs(limit: 10);
+      final trendingSongs = _historyService.getTrendingSongs(limit: 10);
       
-      // Collect unique artists from history to EXCLUDE (avoid showing same artists)
-      final excludeArtists = <String>{};
+      // Build a diverse set of seed artists from history
+      final allHistoryArtists = <String>{};
       for (final song in [...recentSongs, ...trendingSongs]) {
         if (song.artist != null && song.artist!.isNotEmpty) {
-          excludeArtists.add(song.artist!.toLowerCase());
+          allHistoryArtists.add(song.artist!.toLowerCase());
         }
       }
       
       final List<Track> searchSongs = [];
       
-      // Strategy 1: Genre/mood based discovery (40% of recommendations)
-      // Extract potential genre keywords from song title
+      // Strategy 1: Genre/mood based discovery (30%)
       final genreKeywords = _extractGenreKeywords(songTitle);
       for (final genre in genreKeywords.take(2)) {
         final genreSongs = await _ytMusicService.searchSongs('$genre songs', limit: 4);
         searchSongs.addAll(genreSongs);
       }
       
-      // Strategy 2: "Fans also like" style - similar artists (30%)
+      // Strategy 2: "Fans also like" — use a SECOND seed artist from history (25%)
+      // This is key: don't just use the primary seed artist, pick another one
       if (artistName.isNotEmpty) {
         final similarArtistSongs = await _ytMusicService.searchSongs(
-          'artists like $artistName music', limit: 5
+          'artists like $artistName music', limit: 4
         );
         searchSongs.addAll(similarArtistSongs);
       }
+      // Pick a different artist from history as a second seed
+      final otherHistoryArtists = allHistoryArtists
+          .where((a) => a != artistName.toLowerCase())
+          .toList()..shuffle(random);
+      if (otherHistoryArtists.isNotEmpty) {
+        final secondArtist = otherHistoryArtists.first;
+        final secondSeed = await _ytMusicService.searchSongs('$secondArtist songs', limit: 3);
+        searchSongs.addAll(secondSeed);
+      }
       
-      // Strategy 3: Trending/popular in similar style (20%)
+      // Strategy 3: Language-based songs (25%) — ALWAYS include selected language content
+      final prefs = await SharedPreferences.getInstance();
+      final languagesJson = prefs.getStringList('selected_languages') ?? [];
+      if (languagesJson.isNotEmpty) {
+        final langCode = languagesJson[random.nextInt(languagesJson.length)];
+        final language = MusicLanguage.values.firstWhere(
+          (l) => l.code == langCode,
+          orElse: () => MusicLanguage.hindi,
+        );
+        // Pick a rotated artist from this language
+        final langArtistIdx = (_rotationIndex() + random.nextInt(language.topArtists.length)) % language.topArtists.length;
+        final langArtist = language.topArtists[langArtistIdx];
+        final langSongs = await _ytMusicService.searchSongs('$langArtist songs', limit: 4);
+        searchSongs.addAll(langSongs);
+      }
+      
+      // Strategy 4: Trending in similar style (10%)
       final trendingQuery = genreKeywords.isNotEmpty 
           ? '${genreKeywords.first} trending songs'
           : 'trending music';
-      final trendingSongsResult = await _ytMusicService.searchSongs(trendingQuery, limit: 4);
+      final trendingSongsResult = await _ytMusicService.searchSongs(trendingQuery, limit: 3);
       searchSongs.addAll(trendingSongsResult);
       
-      // Strategy 4: Discovery - random popular songs for variety (10%)
-      final discoverySongs = await _ytMusicService.searchSongs('popular new songs', limit: 3);
+      // Strategy 5: Discovery — random popular songs for freshness (10%)
+      final discoveryVariants = ['popular new songs', 'viral songs', 'new music', 'hit songs today'];
+      final discoveryQuery = discoveryVariants[random.nextInt(discoveryVariants.length)];
+      final discoverySongs = await _ytMusicService.searchSongs(discoveryQuery, limit: 3);
       searchSongs.addAll(discoverySongs);
       
-      // Remove duplicates and filter out songs from artists user already listens to heavily
+      // Deduplicate: limit per artist, remove seed song, shuffle
       final uniqueSongs = <String, Track>{};
-      final artistSongCount = <String, int>{}; // Limit songs per artist
+      final artistSongCount = <String, int>{};
       
       for (final song in searchSongs) {
-        // Skip if it's the same song as seed
         if (song.id == seedSong.songId) continue;
-        
-        // Skip if same title and artist (likely same song)
         if (song.title.toLowerCase() == songTitle.toLowerCase() && 
-            song.artist.toLowerCase() == artistName.toLowerCase()) continue;
+            song.artist.toLowerCase() == artistName.toLowerCase()) {
+          continue;
+        }
         
-        // Limit songs from same artist to max 2 (for variety)
         final songArtist = song.artist.toLowerCase();
         final currentCount = artistSongCount[songArtist] ?? 0;
         if (currentCount >= 2) continue;
         
-        // Slightly deprioritize songs from artists user already plays a lot
-        // (but don't completely exclude - they might still want some)
-        if (excludeArtists.contains(songArtist) && currentCount >= 1) continue;
+        // Slightly deprioritize heavily-played artists (but don't fully exclude)
+        if (allHistoryArtists.contains(songArtist) && currentCount >= 1) continue;
         
         uniqueSongs[song.id] = song;
         artistSongCount[songArtist] = currentCount + 1;
       }
       
       final dedupedSongs = uniqueSongs.values.toList();
-      // Shuffle to mix different sources
-      dedupedSongs.shuffle();
+      dedupedSongs.shuffle(random);
 
       // Fetch songs from followed artists and merge into quick picks (20-30%)
       final followedArtistSongs = await _fetchFollowedArtistSongs();
@@ -341,9 +369,8 @@ class QuickPicksNotifier extends StateNotifier<QuickPicksState> {
       final languagesJson = prefs.getStringList('selected_languages') ?? [];
       final artistsJson = prefs.getString('selected_artists');
       
-      // Initialize taste service
+      // Taste service is already initialized in initializeAllServices()
       final tasteService = UserTasteService.instance;
-      await tasteService.init();
       
       final List<Track> primarySongs = [];   // Selected language songs (80%)
       final List<Track> secondarySongs = []; // Discovered taste songs (20%)
@@ -368,6 +395,8 @@ class QuickPicksNotifier extends StateNotifier<QuickPicksState> {
       }
       
       // Second priority: Songs from selected languages
+      final random = Random();
+      final queryVariants = ['songs 2025 hits', 'trending songs', 'latest hits', 'popular songs', 'best songs 2024'];
       for (final langCode in languagesJson.take(3)) {
         final language = MusicLanguage.values.firstWhere(
           (l) => l.code == langCode,
@@ -376,15 +405,19 @@ class QuickPicksNotifier extends StateNotifier<QuickPicksState> {
         
         print('QuickPicks: Fetching songs for language: ${language.displayName}');
         
-        // Search for popular songs in this language
+        // Search for popular songs in this language with rotating query
+        final queryVariant = queryVariants[(_rotationIndex() + random.nextInt(queryVariants.length)) % queryVariants.length];
         final langSongs = await _ytMusicService.searchSongs(
-          '${language.displayName} songs 2024 hits', 
+          '${language.displayName} $queryVariant', 
           limit: 6
         );
         primarySongs.addAll(langSongs);
         
-        // Also get songs from top artists of this language
-        for (final artist in language.topArtists.take(2)) {
+        // Rotate through top artists of this language instead of always first 2
+        final artistCount = language.topArtists.length;
+        for (int i = 0; i < 2 && i < artistCount; i++) {
+          final idx = (_rotationIndex() + i + random.nextInt(artistCount)) % artistCount;
+          final artist = language.topArtists[idx];
           final artistSongs = await _ytMusicService.searchSongs('$artist songs', limit: 3);
           primarySongs.addAll(artistSongs);
         }

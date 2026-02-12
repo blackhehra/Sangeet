@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:shimmer/shimmer.dart';
 import 'package:sangeet/core/theme/app_theme.dart';
 
 class QuickPickCard extends StatelessWidget {
@@ -50,14 +49,12 @@ class QuickPickCard extends StatelessWidget {
                       width: 56,
                       height: 56,
                       fit: BoxFit.cover,
-                      placeholder: (context, url) => Shimmer.fromColors(
-                        baseColor: AppTheme.darkCard,
-                        highlightColor: AppTheme.darkCardHover,
-                        child: Container(
-                          width: 56,
-                          height: 56,
-                          color: AppTheme.darkCard,
-                        ),
+                      memCacheWidth: 112,
+                      memCacheHeight: 112,
+                      placeholder: (context, url) => Container(
+                        width: 56,
+                        height: 56,
+                        color: AppTheme.darkCard,
                       ),
                       errorWidget: (context, url, error) => Container(
                         width: 56,

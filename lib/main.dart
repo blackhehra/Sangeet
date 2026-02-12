@@ -24,6 +24,8 @@ import 'package:sangeet/services/recommendation_service.dart';
 import 'package:sangeet/services/listening_stats_service.dart';
 import 'package:sangeet/services/wrapped_service.dart';
 import 'package:sangeet/services/album_color_service.dart';
+import 'package:sangeet/services/recently_played_service.dart';
+import 'package:sangeet/services/user_taste_service.dart';
 
 /// Check if running on desktop platform
 bool get kIsDesktop {
@@ -33,6 +35,145 @@ bool get kIsDesktop {
 
 /// Global navigator key for plugin webview navigation
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
+
+/// Initialize all app services. Called by splash page after video finishes.
+/// Returns a Future that completes when all critical services are ready.
+Future<void> initializeAllServices() async {
+  print('Services: Starting initialization...');
+  
+  // === PHASE 1: Critical services (needed for playback) ===
+  try {
+    await AudioPlayerService().initAudioHandler();
+    print('AudioHandler: Initialized for lock screen controls');
+  } catch (e) {
+    print('AudioHandler: Init failed: $e');
+  }
+  
+  // Stream cache + streaming server (needed for playback)
+  try {
+    await StreamingServer().initStreamCache();
+    print('StreamingServer: Stream cache initialized');
+  } catch (e) {
+    print('StreamingServer: Stream cache init failed: $e');
+  }
+  
+  try {
+    await StreamingServer().start();
+    print('StreamingServer: Pre-started');
+  } catch (e) {
+    print('StreamingServer: Pre-start failed: $e');
+  }
+  
+  // Equalizer (affects audio output immediately)
+  try {
+    await EqualizerService.instance.init();
+    print('EqualizerService: Initialized');
+  } catch (e) {
+    print('EqualizerService: Init failed: $e');
+  }
+  
+  // Track matcher cache (for faster song matching on restart)
+  TrackMatcherService().initCache().then((_) {
+    print('TrackMatcherService: Cache initialized');
+  }).catchError((e) {
+    print('TrackMatcherService: Cache init failed: $e');
+  });
+  
+  // Playback state + restore last track (shows in mini player)
+  try {
+    await PlaybackStateService.instance.init();
+    print('PlaybackStateService: Initialized');
+    final restored = await AudioPlayerService().restoreLastPlayedTrack();
+    if (restored) {
+      print('PlaybackStateService: Last played track restored');
+    }
+  } catch (e) {
+    print('PlaybackStateService: Init failed: $e');
+  }
+  
+  // Request notification permission for Android 13+
+  try {
+    final status = await Permission.notification.request();
+    print('Notification permission: $status');
+  } catch (e) {
+    print('Notification permission request failed: $e');
+  }
+  
+  // Initialize Spotify Plugin (needed for auth state check)
+  try {
+    await SpotifyPluginService.initialize(navigatorKey: rootNavigatorKey);
+    print('SpotifyPlugin: Initialized successfully');
+  } catch (e, stack) {
+    print('SpotifyPlugin: Failed to initialize: $e');
+    print(stack);
+  }
+  
+  print('Services: Phase 1 complete');
+  
+  // === PHASE 2: Secondary services (fire-and-forget, don't block splash) ===
+  UserTasteService.instance.init().then((_) {
+    print('UserTasteService: Initialized');
+  }).catchError((e) {
+    print('UserTasteService: Init failed: $e');
+  });
+  
+  YtMusicService().init().then((_) {
+    print('YtMusicService: Pre-initialized');
+  }).catchError((e) {
+    print('YtMusicService: Pre-init failed: $e');
+  });
+  
+  PlayHistoryService.instance.init().then((_) {
+    print('PlayHistoryService: Initialized');
+  }).catchError((e) {
+    print('PlayHistoryService: Init failed: $e');
+  });
+  
+  RecentlyPlayedService.instance.init().then((_) {
+    print('RecentlyPlayedService: Initialized');
+  }).catchError((e) {
+    print('RecentlyPlayedService: Init failed: $e');
+  });
+  
+  CustomPlaylistService.instance.init().then((_) {
+    print('CustomPlaylistService: Initialized');
+  }).catchError((e) {
+    print('CustomPlaylistService: Init failed: $e');
+  });
+  
+  DeepLinkHandlerService.instance.init(navigatorKey: rootNavigatorKey).then((_) {
+    print('DeepLinkHandlerService: Initialized');
+  }).catchError((e) {
+    print('DeepLinkHandlerService: Init failed: $e');
+  });
+  
+  // === PHASE 3: Non-critical services (fire-and-forget) ===
+  BluetoothAudioService.instance.init().then((_) {
+    print('BluetoothAudioService: Initialized');
+  }).catchError((e) {
+    print('BluetoothAudioService: Init failed: $e');
+  });
+  
+  ListeningStatsService.instance.init().then((_) {
+    print('ListeningStatsService: Initialized');
+  }).catchError((e) {
+    print('ListeningStatsService: Init failed: $e');
+  });
+  
+  RecommendationService.instance.init().then((_) {
+    print('RecommendationService: Initialized');
+  }).catchError((e) {
+    print('RecommendationService: Init failed: $e');
+  });
+  
+  WrappedService.instance.init().then((_) {
+    print('WrappedService: Initialized');
+  }).catchError((e) {
+    print('WrappedService: Init failed: $e');
+  });
+  
+  print('Services: All initialization dispatched');
+}
 
 void main(List<String> args) async {
   // Handle desktop webview window subprocess (required for desktop_webview_window)
@@ -54,130 +195,8 @@ void main(List<String> args) async {
       HttpOverrides.global = _MyHttpOverrides();
     }
     
-    // Initialize MediaKit
+    // Initialize MediaKit (needed for splash video)
     MediaKit.ensureInitialized();
-    
-    // Initialize audio handler for lock screen media controls EARLY
-    // This must happen before any audio playback
-    try {
-      await AudioPlayerService().initAudioHandler();
-      print('AudioHandler: Initialized for lock screen controls');
-    } catch (e) {
-      print('AudioHandler: Init failed: $e');
-    }
-    
-    // Initialize YTMusic service early (so home page loads faster)
-    YtMusicService().init().then((_) {
-      print('YtMusicService: Pre-initialized');
-    }).catchError((e) {
-      print('YtMusicService: Pre-init failed: $e');
-    });
-    
-    // Start streaming server early
-    StreamingServer().start().then((_) {
-      print('StreamingServer: Pre-started');
-    }).catchError((e) {
-      print('StreamingServer: Pre-start failed: $e');
-    });
-    
-    // Initialize play history service (for personalized recommendations)
-    PlayHistoryService.instance.init().then((_) {
-      print('PlayHistoryService: Initialized');
-    }).catchError((e) {
-      print('PlayHistoryService: Init failed: $e');
-    });
-    
-    // Initialize custom playlist service
-    CustomPlaylistService.instance.init().then((_) {
-      print('CustomPlaylistService: Initialized');
-    }).catchError((e) {
-      print('CustomPlaylistService: Init failed: $e');
-    });
-    
-    // Initialize equalizer service
-    EqualizerService.instance.init().then((_) {
-      print('EqualizerService: Initialized');
-    }).catchError((e) {
-      print('EqualizerService: Init failed: $e');
-    });
-    
-    // Initialize Bluetooth audio service
-    BluetoothAudioService.instance.init().then((_) {
-      print('BluetoothAudioService: Initialized');
-    }).catchError((e) {
-      print('BluetoothAudioService: Init failed: $e');
-    });
-    
-    // Initialize track matcher cache (for faster song matching on restart)
-    TrackMatcherService().initCache().then((_) {
-      print('TrackMatcherService: Cache initialized');
-    }).catchError((e) {
-      print('TrackMatcherService: Cache init failed: $e');
-    });
-    
-    // Initialize stream URL cache (for instant playback of recently played songs)
-    StreamingServer().initStreamCache().then((_) {
-      print('StreamingServer: Stream cache initialized');
-    }).catchError((e) {
-      print('StreamingServer: Stream cache init failed: $e');
-    });
-    
-    // Initialize playback state service and restore last played track
-    PlaybackStateService.instance.init().then((_) async {
-      print('PlaybackStateService: Initialized');
-      // Restore last played track (shows in mini player)
-      final restored = await AudioPlayerService().restoreLastPlayedTrack();
-      if (restored) {
-        print('PlaybackStateService: Last played track restored');
-      }
-    }).catchError((e) {
-      print('PlaybackStateService: Init failed: $e');
-    });
-    
-    // Initialize listening stats service (for analytics dashboard)
-    ListeningStatsService.instance.init().then((_) {
-      print('ListeningStatsService: Initialized');
-    }).catchError((e) {
-      print('ListeningStatsService: Init failed: $e');
-    });
-    
-    // Initialize recommendation service (for daily mixes and personalization)
-    RecommendationService.instance.init().then((_) {
-      print('RecommendationService: Initialized');
-    }).catchError((e) {
-      print('RecommendationService: Init failed: $e');
-    });
-    
-    // Initialize wrapped service (for year-end stats)
-    WrappedService.instance.init().then((_) {
-      print('WrappedService: Initialized');
-    }).catchError((e) {
-      print('WrappedService: Init failed: $e');
-    });
-    
-    // Request notification permission for Android 13+
-    try {
-      final status = await Permission.notification.request();
-      print('Notification permission: $status');
-    } catch (e) {
-      print('Notification permission request failed: $e');
-    }
-    
-    // Initialize Spotify Plugin
-    try {
-      await SpotifyPluginService.initialize(navigatorKey: rootNavigatorKey);
-      print('SpotifyPlugin: Initialized successfully');
-    } catch (e, stack) {
-      print('SpotifyPlugin: Failed to initialize: $e');
-      print(stack);
-    }
-    
-    // Initialize Deep Link Handler for sharing
-    DeepLinkHandlerService.instance.init(navigatorKey: rootNavigatorKey).then((_) {
-      print('DeepLinkHandlerService: Initialized');
-    }).catchError((e) {
-      print('DeepLinkHandlerService: Init failed: $e');
-    });
     
     // Set system UI overlay style
     SystemChrome.setSystemUIOverlayStyle(
@@ -195,6 +214,7 @@ void main(List<String> args) async {
       DeviceOrientation.portraitDown,
     ]);
     
+    // Launch app immediately - splash page handles service initialization
     runApp(
       const ProviderScope(
         child: SangeetApp(),

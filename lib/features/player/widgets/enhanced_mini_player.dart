@@ -347,8 +347,8 @@ class _EnhancedMiniPlayerState extends ConsumerState<EnhancedMiniPlayer>
                                   width: 48,
                                   height: 48,
                                   fit: BoxFit.cover,
-                                  memCacheWidth: 720,
-                                  memCacheHeight: 720,
+                                  memCacheWidth: 96,
+                                  memCacheHeight: 96,
                                   errorWidget: (context, url, error) => Container(
                                     width: 48,
                                     height: 48,

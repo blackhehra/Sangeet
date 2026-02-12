@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:shimmer/shimmer.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:sangeet/core/theme/app_theme.dart';
 
@@ -39,25 +38,16 @@ class AlbumCard extends StatelessWidget {
                   height: 150,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(isCircular ? 75 : 8),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(isCircular ? 75 : 8),
                     child: CachedNetworkImage(
                       imageUrl: imageUrl,
                       fit: BoxFit.cover,
-                      placeholder: (context, url) => Shimmer.fromColors(
-                        baseColor: AppTheme.darkCard,
-                        highlightColor: AppTheme.darkCardHover,
-                        child: Container(
-                          color: AppTheme.darkCard,
-                        ),
+                      memCacheWidth: 300,
+                      memCacheHeight: 300,
+                      placeholder: (context, url) => Container(
+                        color: AppTheme.darkCard,
                       ),
                       errorWidget: (context, url, error) => Container(
                         color: AppTheme.darkCard,
@@ -83,14 +73,7 @@ class AlbumCard extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: AppTheme.primaryColor,
                           shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppTheme.primaryColor.withOpacity(0.4),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
+                          ),
                         child: const Icon(
                           Iconsax.play5,
                           color: Colors.black,

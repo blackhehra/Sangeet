@@ -11,7 +11,9 @@ import 'package:sangeet/shared/providers/audio_provider.dart';
 import 'package:sangeet/shared/providers/quick_picks_provider.dart';
 import 'package:sangeet/services/user_preferences_service.dart';
 import 'package:sangeet/services/auto_queue_service.dart';
+import 'package:sangeet/services/recently_played_service.dart';
 import 'package:sangeet/models/track.dart';
+import 'package:sangeet/services/app_update_service.dart';
 import 'package:sangeet/models/related_page.dart';
 import 'package:sangeet/features/album/pages/album_detail_page.dart';
 import 'package:sangeet/features/artist/pages/artist_detail_page.dart';
@@ -21,22 +23,24 @@ import 'package:sangeet/features/playlist/pages/custom_playlists_page.dart';
 import 'package:sangeet/features/discover/pages/daily_mixes_page.dart';
 import 'package:sangeet/features/discover/pages/music_recognition_page.dart';
 import 'package:sangeet/features/stats/pages/analytics_dashboard_page.dart';
-import 'package:shimmer/shimmer.dart';
-
-class HomePage extends ConsumerWidget {
+class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final trendingMusic = ref.watch(trendingMusicProvider);
-    final newReleases = ref.watch(newReleasesProvider);
-    final topHits = ref.watch(topHitsProvider);
-    final chillMusic = ref.watch(chillMusicProvider);
-    final bollywoodHits = ref.watch(bollywoodHitsProvider);
-    final forYou = ref.watch(forYouProvider);
-    final moreFromArtists = ref.watch(moreFromArtistsProvider);
+  ConsumerState<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends ConsumerState<HomePage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
     final userPrefs = ref.watch(userPreferencesServiceProvider);
     final quickPicks = ref.watch(quickPicksProvider);
+    final recentlyPlayed = ref.watch(recentlyPlayedServiceProvider);
 
     // Load quick picks on first build
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -57,6 +61,7 @@ class HomePage extends ConsumerWidget {
           ref.invalidate(moreFromArtistsProvider);
           ref.invalidate(discoveredForYouProvider);
           ref.read(quickPicksProvider.notifier).refresh();
+          // Don't clear recently played on refresh - it's persistent history
         },
         child: CustomScrollView(
           slivers: [
@@ -89,10 +94,7 @@ class HomePage extends ConsumerWidget {
                 ],
               ),
               actions: [
-                IconButton(
-                  onPressed: () {},
-                  icon: const Icon(Iconsax.notification),
-                ),
+                _buildNotificationButton(context, ref),
                 IconButton(
                   onPressed: () {
                     Navigator.push(
@@ -244,6 +246,22 @@ class HomePage extends ConsumerWidget {
               const SliverGap(24),
             ],
 
+            // "just fu*ked" - Recently Played Section
+            if (recentlyPlayed.recentTracks.isNotEmpty) ...[
+              const SliverToBoxAdapter(
+                child: SectionHeader(
+                  title: 'Just fu*ked',
+                  actionText: 'See all',
+                ),
+              ),
+              
+              SliverToBoxAdapter(
+                child: _buildRecentlyPlayedList(context, ref, recentlyPlayed.recentTracks),
+              ),
+              
+              const SliverGap(24),
+            ],
+
             // Similar Artists Section (from quick picks)
             if (quickPicks.relatedPage?.artists != null && 
                 quickPicks.relatedPage!.artists!.isNotEmpty) ...[
@@ -288,7 +306,7 @@ class HomePage extends ConsumerWidget {
               ),
               
               SliverToBoxAdapter(
-                child: _buildTrackList(context, ref, forYou),
+                child: _buildTrackList(context, ref, ref.watch(forYouProvider)),
               ),
               
               const SliverGap(24),
@@ -305,7 +323,7 @@ class HomePage extends ConsumerWidget {
                 title: userPrefs.selectedLanguages.isNotEmpty
                     ? '${userPrefs.selectedLanguages.first.displayName} Trending'
                     : 'Trending Now',
-                tracksAsync: trendingMusic,
+                tracksAsync: ref.watch(trendingMusicProvider),
                 context: context,
                 ref: ref,
               ),
@@ -317,7 +335,7 @@ class HomePage extends ConsumerWidget {
                 title: userPrefs.selectedLanguages.isNotEmpty
                     ? '${userPrefs.selectedLanguages.first.displayName} Top Hits'
                     : 'Top Hits',
-                tracksAsync: topHits,
+                tracksAsync: ref.watch(topHitsProvider),
                 context: context,
                 ref: ref,
               ),
@@ -329,7 +347,7 @@ class HomePage extends ConsumerWidget {
                 title: userPrefs.selectedLanguages.length > 1
                     ? '${userPrefs.selectedLanguages[1].displayName} Hits'
                     : 'Bollywood Hits',
-                tracksAsync: bollywoodHits,
+                tracksAsync: ref.watch(bollywoodHitsProvider),
                 context: context,
                 ref: ref,
               ),
@@ -340,7 +358,7 @@ class HomePage extends ConsumerWidget {
               SliverToBoxAdapter(
                 child: _buildSection(
                   title: 'More from ${userPrefs.selectedArtists[2].name}',
-                  tracksAsync: moreFromArtists,
+                  tracksAsync: ref.watch(moreFromArtistsProvider),
                   context: context,
                   ref: ref,
                 ),
@@ -352,7 +370,7 @@ class HomePage extends ConsumerWidget {
                 title: userPrefs.selectedLanguages.isNotEmpty
                     ? '${userPrefs.selectedLanguages.first.displayName} Chill'
                     : 'Chill & Relax',
-                tracksAsync: chillMusic,
+                tracksAsync: ref.watch(chillMusicProvider),
                 context: context,
                 ref: ref,
               ),
@@ -364,7 +382,7 @@ class HomePage extends ConsumerWidget {
                 title: userPrefs.selectedLanguages.isNotEmpty
                     ? 'New ${userPrefs.selectedLanguages.first.displayName} Releases'
                     : 'New Releases',
-                tracksAsync: newReleases,
+                tracksAsync: ref.watch(newReleasesProvider),
                 context: context,
                 ref: ref,
               ),
@@ -392,6 +410,7 @@ class HomePage extends ConsumerWidget {
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
+            addAutomaticKeepAlives: false,
             itemCount: tracks.length,
             itemBuilder: (context, index) {
               final track = tracks[index];
@@ -415,19 +434,16 @@ class HomePage extends ConsumerWidget {
         child: ListView.builder(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 16),
+          addAutomaticKeepAlives: false,
           itemCount: 5,
           itemBuilder: (context, index) {
             return Padding(
               padding: const EdgeInsets.only(right: 12),
-              child: Shimmer.fromColors(
-                baseColor: AppTheme.darkCard,
-                highlightColor: AppTheme.darkCardHover,
-                child: Container(
-                  width: 150,
-                  decoration: BoxDecoration(
-                    color: AppTheme.darkCard,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+              child: Container(
+                width: 150,
+                decoration: BoxDecoration(
+                  color: AppTheme.darkCard,
+                  borderRadius: BorderRadius.circular(8),
                 ),
               ),
             );
@@ -457,6 +473,7 @@ class HomePage extends ConsumerWidget {
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
+                addAutomaticKeepAlives: false,
                 itemCount: tracks.length,
                 itemBuilder: (context, index) {
                   final track = tracks[index];
@@ -487,19 +504,16 @@ class HomePage extends ConsumerWidget {
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
+              addAutomaticKeepAlives: false,
               itemCount: 5,
               itemBuilder: (context, index) {
                 return Padding(
                   padding: const EdgeInsets.only(right: 12),
-                  child: Shimmer.fromColors(
-                    baseColor: AppTheme.darkCard,
-                    highlightColor: AppTheme.darkCardHover,
-                    child: Container(
-                      width: 150,
-                      decoration: BoxDecoration(
-                        color: AppTheme.darkCard,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+                  child: Container(
+                    width: 150,
+                    decoration: BoxDecoration(
+                      color: AppTheme.darkCard,
+                      borderRadius: BorderRadius.circular(8),
                     ),
                   ),
                 );
@@ -533,6 +547,7 @@ class HomePage extends ConsumerWidget {
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
+                addAutomaticKeepAlives: false,
                 itemCount: tracks.length,
                 itemBuilder: (context, index) {
                   final track = tracks[index];
@@ -559,6 +574,42 @@ class HomePage extends ConsumerWidget {
     );
   }
   
+  /// Notification bell with update badge
+  Widget _buildNotificationButton(BuildContext context, WidgetRef ref) {
+    final updateState = ref.watch(appUpdateProvider);
+    final hasUpdate = updateState.hasUpdate;
+
+    return Stack(
+      children: [
+        IconButton(
+          onPressed: () {
+            if (hasUpdate) {
+              showUpdateDialog(context, ref);
+            }
+          },
+          icon: const Icon(Iconsax.notification),
+        ),
+        if (hasUpdate)
+          Positioned(
+            right: 8,
+            top: 8,
+            child: Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: const Color(0xFF1DB954),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  width: 1.5,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   String _getGreeting() {
     final hour = DateTime.now().hour;
     if (hour < 12) {
@@ -577,6 +628,7 @@ class HomePage extends ConsumerWidget {
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
+        addAutomaticKeepAlives: false,
         itemCount: tracks.length,
         itemBuilder: (context, index) {
           final track = tracks[index];
@@ -586,6 +638,34 @@ class HomePage extends ConsumerWidget {
               track: track,
               onTap: () {
                 // Play single track with auto-queue enabled for home page
+                final audioService = ref.read(audioPlayerServiceProvider);
+                audioService.play(track, source: PlaySource.homeSingleSong);
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Build recently played list (for "just fu*ked" section)
+  Widget _buildRecentlyPlayedList(BuildContext context, WidgetRef ref, List<Track> tracks) {
+    // Show up to 20 in the horizontal scroll, full list on "See all"
+    final displayTracks = tracks.take(20).toList();
+    return SizedBox(
+      height: 200,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        addAutomaticKeepAlives: false,
+        itemCount: displayTracks.length,
+        itemBuilder: (context, index) {
+          final track = displayTracks[index];
+          return Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: TrackCard(
+              track: track,
+              onTap: () {
                 final audioService = ref.read(audioPlayerServiceProvider);
                 audioService.play(track, source: PlaySource.homeSingleSong);
               },
@@ -607,15 +687,11 @@ class HomePage extends ConsumerWidget {
         itemBuilder: (context, index) {
           return Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: Shimmer.fromColors(
-              baseColor: AppTheme.darkCard,
-              highlightColor: AppTheme.darkCardHover,
-              child: Container(
-                width: 150,
-                decoration: BoxDecoration(
-                  color: AppTheme.darkCard,
-                  borderRadius: BorderRadius.circular(8),
-                ),
+            child: Container(
+              width: 150,
+              decoration: BoxDecoration(
+                color: AppTheme.darkCard,
+                borderRadius: BorderRadius.circular(8),
               ),
             ),
           );

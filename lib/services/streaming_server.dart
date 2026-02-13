@@ -104,7 +104,11 @@ class StreamingServer {
 
   HttpServer? _server;
   int _port = 0;
-  final dio_lib.Dio _dio = dio_lib.Dio();
+  final dio_lib.Dio _dio = dio_lib.Dio(dio_lib.BaseOptions(
+    connectTimeout: const Duration(seconds: 15),
+    receiveTimeout: const Duration(seconds: 20),
+    sendTimeout: const Duration(seconds: 15),
+  ));
   final YoutubeExplode _yt = YoutubeExplode();
   final InnertubeService _innertube = InnertubeService();
   final Map<String, _UriEntry> _uriCache = {};

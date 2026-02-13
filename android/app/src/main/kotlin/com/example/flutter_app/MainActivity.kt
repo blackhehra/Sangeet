@@ -10,6 +10,8 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -19,6 +21,7 @@ import java.io.File
 class MainActivity : AudioServiceActivity() {
     private val CHANNEL = "com.example.flutter_app/native"
     private val BLUETOOTH_CHANNEL = "com.sangeet.audio/bluetooth"
+    private val BATTERY_CHANNEL = "com.sangeet.battery/optimization"
     
     private var a2dpProfile: BluetoothProfile? = null
     private var headsetProfile: BluetoothProfile? = null
@@ -56,6 +59,24 @@ class MainActivity : AudioServiceActivity() {
             when (call.method) {
                 "getConnectedAudioDevice" -> {
                     getConnectedAudioDeviceAsync(result)
+                }
+                else -> result.notImplemented()
+            }
+        }
+        
+        // Battery optimization channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BATTERY_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "isIgnoringBatteryOptimizations" -> {
+                    result.success(isIgnoringBatteryOptimizations())
+                }
+                "requestIgnoreBatteryOptimizations" -> {
+                    requestIgnoreBatteryOptimizations()
+                    result.success(true)
+                }
+                "openBatteryOptimizationSettings" -> {
+                    openBatteryOptimizationSettings()
+                    result.success(true)
                 }
                 else -> result.notImplemented()
             }
@@ -199,6 +220,43 @@ class MainActivity : AudioServiceActivity() {
         } catch (e: Exception) {
             android.util.Log.e("BluetoothNative", "Error: ${e.message}", e)
             result.success(null)
+        }
+    }
+    
+    // Check if the app is already exempt from battery optimizations
+    private fun isIgnoringBatteryOptimizations(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        return powerManager.isIgnoringBatteryOptimizations(packageName)
+    }
+    
+    // Request battery optimization exemption via system dialog
+    private fun requestIgnoreBatteryOptimizations() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        try {
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:$packageName")
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            android.util.Log.e("BatteryOptimization", "Failed to request battery optimization: ${e.message}")
+            // Fallback: open general battery optimization settings
+            openBatteryOptimizationSettings()
+        }
+    }
+    
+    // Open the battery optimization settings page
+    private fun openBatteryOptimizationSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            startActivity(intent)
+        } catch (e: Exception) {
+            android.util.Log.e("BatteryOptimization", "Failed to open battery settings: ${e.message}")
+            // Fallback: open general device settings
+            try {
+                val intent = Intent(Settings.ACTION_SETTINGS)
+                startActivity(intent)
+            } catch (_: Exception) {}
         }
     }
 }

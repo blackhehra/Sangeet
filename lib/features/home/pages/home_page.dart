@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
@@ -14,6 +15,7 @@ import 'package:sangeet/services/auto_queue_service.dart';
 import 'package:sangeet/services/recently_played_service.dart';
 import 'package:sangeet/models/track.dart';
 import 'package:sangeet/services/app_update_service.dart';
+import 'package:sangeet/services/battery_optimization_service.dart';
 import 'package:sangeet/models/related_page.dart';
 import 'package:sangeet/features/album/pages/album_detail_page.dart';
 import 'package:sangeet/features/artist/pages/artist_detail_page.dart';
@@ -34,6 +36,70 @@ class _HomePageState extends ConsumerState<HomePage>
     with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    // Show battery optimization prompt on first launch (Android only)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybeShowBatteryOptimizationPrompt();
+    });
+  }
+
+  Future<void> _maybeShowBatteryOptimizationPrompt() async {
+    if (!Platform.isAndroid) return;
+    
+    final batteryService = ref.read(batteryOptimizationProvider.notifier);
+    final alreadyShown = await batteryService.hasPromptBeenShown();
+    if (alreadyShown) return;
+    
+    final isExempt = await batteryService.checkStatus();
+    if (isExempt) {
+      await batteryService.markPromptAsShown();
+      return;
+    }
+    
+    if (!mounted) return;
+    
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        icon: Icon(
+          Iconsax.battery_charging,
+          size: 48,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        title: const Text('Smoother Background Playback'),
+        content: const Text(
+          'Enable unrestricted battery usage so your music keeps playing '
+          'smoothly even when the screen is locked.\n\n'
+          'Without this, songs may pause or buffer during long listening sessions.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              batteryService.markPromptAsShown();
+            },
+            child: const Text('Not Now'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await batteryService.requestDisableBatteryOptimization();
+              await batteryService.markPromptAsShown();
+              // Re-check status after user returns from system dialog
+              Future.delayed(const Duration(seconds: 1), () {
+                batteryService.checkStatus();
+              });
+            },
+            child: const Text('Enable'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -1148,42 +1148,46 @@ class AudioPlayerService {
   }
   
   /// Prefetch multiple upcoming tracks in background
-  /// This ensures next songs start instantly without loading or buffering
-  /// Prefetches and caches to disk for instant playback
+  /// Scans ahead through the entire remaining queue to find the next N
+  /// *uncached* songs, skipping already-cached ones. This ensures each
+  /// song completion triggers `count` genuinely new downloads.
   void _prefetchUpcomingTracks({int count = 3}) {
     if (_queue.isEmpty) return;
     
     final sessionId = _playbackSessionId;
-    final indicesToPrefetch = <int>[];
+    final indicesToScan = <int>[];
     
-    // Calculate which indices to prefetch - get next N tracks
+    // Collect ALL remaining indices in play order — the sequential
+    // prefetcher will skip cached ones and stop after `count` real downloads.
     if (_isShuffled && _shuffledIndices.isNotEmpty) {
       final currentShuffleIndex = _shuffledIndices.indexOf(_currentIndex);
-      for (int offset = 1; offset <= count; offset++) {
-        final nextShuffleIndex = currentShuffleIndex + offset;
-        if (nextShuffleIndex >= _shuffledIndices.length) break;
-        indicesToPrefetch.add(_shuffledIndices[nextShuffleIndex]);
+      for (int offset = 1; currentShuffleIndex + offset < _shuffledIndices.length; offset++) {
+        indicesToScan.add(_shuffledIndices[currentShuffleIndex + offset]);
       }
     } else {
-      for (int offset = 1; offset <= count; offset++) {
-        final nextIndex = _currentIndex + offset;
-        if (nextIndex >= _queue.length) break;
-        indicesToPrefetch.add(nextIndex);
+      for (int offset = 1; _currentIndex + offset < _queue.length; offset++) {
+        indicesToScan.add(_currentIndex + offset);
       }
     }
     
-    if (indicesToPrefetch.isEmpty) return;
+    if (indicesToScan.isEmpty) return;
     
-    print('AudioPlayer: Prefetching next ${indicesToPrefetch.length} tracks in background');
+    print('AudioPlayer: Scanning ${indicesToScan.length} upcoming tracks, will download up to $count uncached');
     
-    // Prefetch each track in sequence (to avoid overwhelming the network)
-    _prefetchTracksSequentially(indicesToPrefetch, sessionId);
+    // Prefetch tracks in sequence, stopping after `count` actual downloads
+    _prefetchTracksSequentially(indicesToScan, sessionId, maxDownloads: count);
   }
   
   /// Prefetch tracks one by one to avoid network congestion
   /// Downloads and caches each track to disk for instant playback
-  Future<void> _prefetchTracksSequentially(List<int> indices, int sessionId) async {
+  /// Stops after [maxDownloads] actual downloads (skipped/cached songs don't count)
+  Future<void> _prefetchTracksSequentially(List<int> indices, int sessionId, {int maxDownloads = 3}) async {
+    int downloaded = 0;
+    
     for (int i = 0; i < indices.length; i++) {
+      // Stop once we've downloaded enough new songs
+      if (downloaded >= maxDownloads) break;
+      
       final index = indices[i];
       
       // Check if session is still valid
@@ -1201,7 +1205,7 @@ class AudioPlayerService {
       
       // Check if track needs YouTube matching first
       if (track.id.length != 11) {
-        print('AudioPlayer: Prefetch [${i + 1}/${indices.length}] - matching: ${track.title}');
+        print('AudioPlayer: Prefetch [${downloaded + 1}/$maxDownloads] - matching: ${track.title}');
         final matchedTrack = await _matchTrackToYouTube(track);
         if (matchedTrack != null && sessionId == _playbackSessionId) {
           _queue[index] = matchedTrack;
@@ -1215,22 +1219,23 @@ class AudioPlayerService {
       
       // Skip if already being prefetched by another call
       if (_prefetchingIds.contains(track.id)) {
-        print('AudioPlayer: Prefetch [${i + 1}/${indices.length}] - already in progress: ${track.title}');
+        print('AudioPlayer: Prefetch [${downloaded + 1}/$maxDownloads] - already in progress: ${track.title}');
         continue;
       }
       
       // Skip if already cached on disk
       final isCached = await _streamingServer.isAudioCached(track.id);
       if (isCached) {
-        print('AudioPlayer: Prefetch [${i + 1}/${indices.length}] - already cached: ${track.title}');
+        print('AudioPlayer: Prefetch - already cached: ${track.title}');
         continue;
       }
       
       // Prefetch and cache to disk
-      print('AudioPlayer: Prefetch [${i + 1}/${indices.length}] - downloading: ${track.title}');
+      print('AudioPlayer: Prefetch [${downloaded + 1}/$maxDownloads] - downloading: ${track.title}');
       _prefetchingIds.add(track.id);
       try {
         await _streamingServer.prefetchAndCacheTrack(track.id);
+        downloaded++;
       } finally {
         _prefetchingIds.remove(track.id);
       }
@@ -1239,7 +1244,7 @@ class AudioPlayerService {
       await Future.delayed(const Duration(milliseconds: 200));
     }
     
-    print('AudioPlayer: Prefetch complete');
+    print('AudioPlayer: Prefetch complete ($downloaded new downloads)');
   }
 
   /// Restore last played track from saved state (call on app startup)

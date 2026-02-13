@@ -6,17 +6,45 @@ import 'package:iconsax/iconsax.dart';
 import 'package:sangeet/services/settings_service.dart';
 import 'package:sangeet/services/user_preferences_service.dart';
 import 'package:sangeet/services/keyboard_shortcuts_service.dart';
+import 'package:sangeet/services/battery_optimization_service.dart';
 import 'package:sangeet/features/settings/pages/about_page.dart';
 import 'package:sangeet/features/radio/pages/radio_page.dart';
 import 'package:sangeet/shared/providers/player_dismiss_provider.dart';
 
-class SettingsPage extends ConsumerWidget {
+class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends ConsumerState<SettingsPage>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Re-check battery optimization status when user returns from system settings
+    if (state == AppLifecycleState.resumed) {
+      ref.read(batteryOptimizationProvider.notifier).checkStatus();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final settings = ref.watch(settingsServiceProvider);
     final settingsService = ref.read(settingsServiceProvider.notifier);
+    final isBatteryOptimized = ref.watch(batteryOptimizationProvider);
 
     // Hide navigation bar and player when settings page is displayed
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -116,6 +144,37 @@ class SettingsPage extends ConsumerWidget {
               );
             },
           ),
+          
+          // Battery Optimization (Android only)
+          if (!kIsWeb && Platform.isAndroid) ...[            
+            ListTile(
+              leading: Icon(
+                Iconsax.battery_charging,
+                color: isBatteryOptimized
+                    ? Colors.green
+                    : Theme.of(context).colorScheme.error,
+              ),
+              title: const Text('Background Playback'),
+              subtitle: Text(
+                isBatteryOptimized
+                    ? 'Battery optimization disabled — music plays uninterrupted'
+                    : 'Battery optimization is restricting background playback',
+              ),
+              trailing: isBatteryOptimized
+                  ? const Icon(Iconsax.tick_circle5, color: Colors.green, size: 20)
+                  : FilledButton.tonal(
+                      onPressed: () {
+                        ref.read(batteryOptimizationProvider.notifier)
+                            .requestDisableBatteryOptimization();
+                      },
+                      child: const Text('Fix'),
+                    ),
+              onTap: () {
+                ref.read(batteryOptimizationProvider.notifier)
+                    .openBatterySettings();
+              },
+            ),
+          ],
           
           // Keyboard Shortcuts (Desktop only)
           if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux))

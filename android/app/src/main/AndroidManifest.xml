@@ -22,6 +22,9 @@
     <!-- Required for in-app APK installation -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     
+    <!-- Battery optimization exemption for uninterrupted background playback -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    
     <application
         android:label="Sangeet"
         android:usesCleartextTraffic="true"

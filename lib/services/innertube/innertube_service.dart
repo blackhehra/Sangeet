@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:sangeet/models/track.dart';
 import 'package:sangeet/models/related_page.dart';
@@ -12,7 +13,7 @@ class InnertubeService {
 
   static const String _baseUrl = 'https://music.youtube.com/youtubei/v1';
   static const String _playerUrl = 'https://youtubei.googleapis.com/youtubei/v1/player';
-  static const String _apiKey = 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30';
+  static String get _apiKey => dotenv.env['YTM_API_KEY'] ?? '';
 
   // Client contexts for API requests
   static const Map<String, dynamic> _webContext = {

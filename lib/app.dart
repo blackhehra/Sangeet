@@ -2,7 +2,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sliding_up_panel/sliding_up_panel.dart';
+import 'package:sangeet/shared/widgets/sliding_up_panel.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:sangeet/core/theme/app_theme.dart';
 import 'package:sangeet/features/home/pages/home_page.dart';
@@ -233,6 +233,7 @@ class _PlayerOverlay extends ConsumerWidget {
       maxHeight: screenSize.height,
       minHeight: canShow ? miniPlayerHeight + navBarHeight : 0,
       isDraggable: !isAlbumArtSwiping, // Block panel drag during album art swipe
+      gestureDisabled: panelGestureDisabledNotifier, // Instantly disable raw Listener during horizontal swipes
       backdropEnabled: false,
       parallaxEnabled: true,
       renderPanelSheet: false,
@@ -255,11 +256,8 @@ class _PlayerOverlay extends ConsumerWidget {
         ),
       ),
       // Panel = full player (fades in smoothly as panel slides up)
-      // Using `panel` instead of `panelBuilder` so the SlidingUpPanel uses
-      // a GestureDetector (onVerticalDrag*) rather than a raw Listener.
-      // This lets Flutter's gesture arena properly disambiguate horizontal
-      // swipes (song change) from vertical drags (panel dismiss).
-      panel: _FullPlayerPanel(
+      panelBuilder: (scrollController) => _FullPlayerPanel(
+        scrollController: scrollController,
         panelController: panelController,
       ),
     );
@@ -268,9 +266,11 @@ class _PlayerOverlay extends ConsumerWidget {
 
 /// Full player panel that smoothly fades in as panel slides up (YouTube Music style)
 class _FullPlayerPanel extends ConsumerWidget {
+  final ScrollController scrollController;
   final PanelController panelController;
   
   const _FullPlayerPanel({
+    required this.scrollController,
     required this.panelController,
   });
 
@@ -291,6 +291,7 @@ class _FullPlayerPanel extends ConsumerWidget {
       child: IgnorePointer(
         ignoring: opacity < 0.5, // Don't accept touches until mostly visible
         child: PlayerPage(
+          scrollController: scrollController,
           panelController: panelController,
         ),
       ),

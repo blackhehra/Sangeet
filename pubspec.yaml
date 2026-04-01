@@ -43,7 +43,8 @@ dependencies:
   shimmer: ^3.0.0
   flutter_animate: ^4.5.0
   gap: ^3.0.1
-  sliding_up_panel: ^2.0.0+1
+  # sliding_up_panel removed — using local modified copy at lib/shared/widgets/sliding_up_panel.dart
+  # with gestureDisabled support for proper horizontal/vertical gesture disambiguation
   
   # State Management
   flutter_riverpod: ^2.5.1

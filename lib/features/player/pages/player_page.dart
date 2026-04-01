@@ -5,7 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:gap/gap.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:sliding_up_panel/sliding_up_panel.dart';
+import 'package:sangeet/shared/widgets/sliding_up_panel.dart';
 import 'package:sangeet/core/theme/app_theme.dart';
 import 'package:sangeet/shared/providers/audio_provider.dart';
 import 'package:sangeet/shared/providers/bluetooth_provider.dart';
@@ -26,10 +26,12 @@ import 'package:sangeet/shared/providers/custom_playlist_provider.dart';
 import 'package:sangeet/features/player/widgets/queue_carousel_overlay.dart' show InlineQueueCarousel;
 
 class PlayerPage extends ConsumerStatefulWidget {
+  final ScrollController? scrollController;
   final PanelController? panelController;
   
   const PlayerPage({
     super.key,
+    this.scrollController,
     this.panelController,
   });
 
@@ -137,6 +139,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
   
   @override
   void dispose() {
+    // Safety: ensure panel gesture is re-enabled if page is disposed mid-swipe
+    panelGestureDisabledNotifier.value = false;
     _cascadeAnimationController?.dispose();
     _carouselAnimationController?.dispose();
     super.dispose();
@@ -506,6 +510,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                   return false; // Allow normal scroll
                 },
                 child: SingleChildScrollView(
+                  controller: widget.scrollController,
                   physics: _isSwiping ? const NeverScrollableScrollPhysics() : const ClampingScrollPhysics(),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
@@ -637,6 +642,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                         onLongPress: _showQueueCarouselOverlay,
                         onHorizontalDragStart: (details) {
                           _isHorizontalGesture = true;
+                          // Synchronously disable panel's raw Listener
+                          panelGestureDisabledNotifier.value = true;
                           ref.read(isAlbumArtSwipingProvider.notifier).state = true;
                           setState(() {
                             _isSwiping = true;
@@ -658,6 +665,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                           });
                         },
                         onHorizontalDragEnd: (details) {
+                          panelGestureDisabledNotifier.value = false;
                           ref.read(isAlbumArtSwipingProvider.notifier).state = false;
                           final velocity = details.primaryVelocity ?? 0.0;
                           final fastSwipe = velocity.abs() > 800 && _swipeOffset.abs() > 30;
@@ -683,6 +691,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                         },
                         onHorizontalDragCancel: () {
                           // Always clean up state if gesture is cancelled
+                          panelGestureDisabledNotifier.value = false;
                           ref.read(isAlbumArtSwipingProvider.notifier).state = false;
                           setState(() {
                             _isSwiping = false;
@@ -747,6 +756,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                     behavior: HitTestBehavior.opaque,
                     onHorizontalDragStart: (details) {
                       _isHorizontalGesture = true;
+                      panelGestureDisabledNotifier.value = true;
                       setState(() {
                         _isSwiping = true;
                         _swipeOffset = 0.0;
@@ -767,6 +777,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                       });
                     },
                     onHorizontalDragEnd: (details) {
+                      panelGestureDisabledNotifier.value = false;
                       final velocity = details.primaryVelocity ?? 0.0;
                       final fastSwipe = velocity.abs() > 800 && _swipeOffset.abs() > 30;
                       

@@ -1,5 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sliding_up_panel/sliding_up_panel.dart';
+import 'package:sangeet/shared/widgets/sliding_up_panel.dart';
 
 /// Provider to share the full player dismiss progress with other widgets
 /// Progress is 0.0 when player is fully open, 1.0 when fully dismissed
@@ -25,6 +26,11 @@ final hidePlayerProvider = StateProvider<bool>((ref) => false);
 /// Whether horizontal swiping on album art is active
 /// When true, panel vertical drag should be disabled to prevent conflicts
 final isAlbumArtSwipingProvider = StateProvider<bool>((ref) => false);
+
+/// ValueNotifier that disables the panel's raw Listener immediately
+/// (synchronous, no rebuild needed). Set to true when horizontal swipe starts,
+/// false when it ends. The panel checks this on every pointer event.
+final panelGestureDisabledNotifier = ValueNotifier<bool>(false);
 
 /// Raw panel slide position: 0.0 = collapsed, 1.0 = fully expanded
 /// Used for smooth crossfade between mini player and full player

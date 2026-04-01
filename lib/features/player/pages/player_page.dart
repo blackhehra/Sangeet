@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -58,12 +57,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
   bool _isSwiping = false;
   int _pendingSwipeDirection = 0; // -1 = prev, 0 = none, 1 = next
   
-  // Spotify-style gesture detection with angle threshold
-  // Prioritize horizontal in center, vertical only for straight-down swipes
-  Offset? _panStartPosition;
-  bool _gestureDirectionDecided = false;
+  // Gesture state flags for horizontal drag on album art
+  // Using onHorizontalDrag* instead of onPan* lets Flutter's gesture arena
+  // naturally disambiguate: horizontal drags → album art, vertical drags → panel
   bool _isHorizontalGesture = false;
-  static const double _angleThresholdDegrees = 25.0; // Vertical only if within 25° of straight down
   
   // Seek bar scrubbing state - only seek on release, not during drag
   // This prevents issues when song is loading and user moves the slider
@@ -635,92 +632,66 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                         );
                       }
                       
-                      // Normal album art with swipe and long press
-                      // Uses Spotify-style gesture detection: angle threshold + initial lock
-                      // Prioritizes horizontal in center, vertical only for straight-down swipes
+                      // YouTube Music style: onHorizontalDrag* lets Flutter's
+                      // gesture arena cleanly separate horizontal (song change)
+                      // from vertical (panel dismiss). No manual angle math needed.
                       return GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onLongPress: _showQueueCarouselOverlay,
-                        onPanStart: (details) {
-                          _panStartPosition = details.globalPosition;
-                          _gestureDirectionDecided = false;
+                        onHorizontalDragStart: (details) {
+                          _isHorizontalGesture = true;
+                          ref.read(isAlbumArtSwipingProvider.notifier).state = true;
+                          setState(() {
+                            _isSwiping = true;
+                            _swipeOffset = 0.0;
+                            _pendingSwipeDirection = 0;
+                          });
+                        },
+                        onHorizontalDragUpdate: (details) {
+                          if (!_isHorizontalGesture) return;
+                          setState(() {
+                            _swipeOffset += details.delta.dx;
+                            if (_swipeOffset > 80) {
+                              _pendingSwipeDirection = -1;
+                            } else if (_swipeOffset < -80) {
+                              _pendingSwipeDirection = 1;
+                            } else {
+                              _pendingSwipeDirection = 0;
+                            }
+                          });
+                        },
+                        onHorizontalDragEnd: (details) {
+                          ref.read(isAlbumArtSwipingProvider.notifier).state = false;
+                          final velocity = details.primaryVelocity ?? 0.0;
+                          final fastSwipe = velocity.abs() > 800 && _swipeOffset.abs() > 30;
+                          
+                          if (_pendingSwipeDirection != 0 || fastSwipe) {
+                            final direction = fastSwipe && _pendingSwipeDirection == 0
+                                ? (velocity > 0 ? -1 : 1)
+                                : _pendingSwipeDirection;
+                            
+                            if (direction == 1) {
+                              audioService.skipToNext();
+                            } else if (direction == -1) {
+                              audioService.skipToPrevious(forceSkip: true);
+                            }
+                          }
+                          
+                          setState(() {
+                            _isSwiping = false;
+                            _swipeOffset = 0.0;
+                            _pendingSwipeDirection = 0;
+                          });
                           _isHorizontalGesture = false;
                         },
-                        onPanUpdate: (details) {
-                          if (_panStartPosition == null) return;
-                          
-                          // Decide gesture direction on first significant movement
-                          if (!_gestureDirectionDecided) {
-                            final delta = details.globalPosition - _panStartPosition!;
-                            final distance = delta.distance;
-                            
-                            // Wait for minimum movement before deciding
-                            if (distance < 10) return;
-                            
-                            // Calculate angle from horizontal (0° = right, 90° = down)
-                            // atan2(dy, dx) gives angle in radians
-                            final angle = math.atan2(delta.dy.abs(), delta.dx.abs()) * 180 / math.pi;
-                            
-                            // Spotify-style: Only allow vertical if swipe is nearly straight down
-                            // (within _angleThresholdDegrees of 90°, i.e., angle > 90 - threshold)
-                            // Otherwise, treat as horizontal swipe
-                            final isNearlyVertical = angle > (90 - _angleThresholdDegrees) && delta.dy > 0;
-                            
-                            _gestureDirectionDecided = true;
-                            _isHorizontalGesture = !isNearlyVertical;
-                            
-                            if (_isHorizontalGesture) {
-                              ref.read(isAlbumArtSwipingProvider.notifier).state = true;
-                              setState(() {
-                                _isSwiping = true;
-                                _swipeOffset = 0.0;
-                                _pendingSwipeDirection = 0;
-                              });
-                            }
-                          }
-                          
-                          // Handle horizontal swipe
-                          if (_isHorizontalGesture) {
-                            setState(() {
-                              _swipeOffset += details.delta.dx;
-                              if (_swipeOffset > 80) {
-                                _pendingSwipeDirection = -1;
-                              } else if (_swipeOffset < -80) {
-                                _pendingSwipeDirection = 1;
-                              } else {
-                                _pendingSwipeDirection = 0;
-                              }
-                            });
-                          }
-                          // Vertical swipes are ignored here - let SlidingUpPanel handle them
-                        },
-                        onPanEnd: (details) {
-                          if (_isHorizontalGesture) {
-                            ref.read(isAlbumArtSwipingProvider.notifier).state = false;
-                            final velocity = details.velocity.pixelsPerSecond.dx;
-                            final fastSwipe = velocity.abs() > 800 && _swipeOffset.abs() > 30;
-                            
-                            if (_pendingSwipeDirection != 0 || fastSwipe) {
-                              final direction = fastSwipe && _pendingSwipeDirection == 0
-                                  ? (velocity > 0 ? -1 : 1)
-                                  : _pendingSwipeDirection;
-                              
-                              if (direction == 1) {
-                                audioService.skipToNext();
-                              } else if (direction == -1) {
-                                audioService.skipToPrevious(forceSkip: true);
-                              }
-                            }
-                            
-                            setState(() {
-                              _isSwiping = false;
-                              _swipeOffset = 0.0;
-                              _pendingSwipeDirection = 0;
-                            });
-                          }
-                          
-                          _panStartPosition = null;
-                          _gestureDirectionDecided = false;
+                        onHorizontalDragCancel: () {
+                          // Always clean up state if gesture is cancelled
+                          ref.read(isAlbumArtSwipingProvider.notifier).state = false;
+                          setState(() {
+                            _isSwiping = false;
+                            _swipeOffset = 0.0;
+                            _pendingSwipeDirection = 0;
+                          });
                           _isHorizontalGesture = false;
                         },
                         child: SizedBox(
@@ -778,7 +749,6 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onHorizontalDragStart: (details) {
-                      _gestureDirectionDecided = true;
                       _isHorizontalGesture = true;
                       setState(() {
                         _isSwiping = true;
@@ -820,7 +790,6 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                         _swipeOffset = 0.0;
                         _pendingSwipeDirection = 0;
                       });
-                      _gestureDirectionDecided = false;
                       _isHorizontalGesture = false;
                     },
                     child: Padding(

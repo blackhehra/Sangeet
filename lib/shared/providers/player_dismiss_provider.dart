@@ -25,3 +25,7 @@ final hidePlayerProvider = StateProvider<bool>((ref) => false);
 /// Whether horizontal swiping on album art is active
 /// When true, panel vertical drag should be disabled to prevent conflicts
 final isAlbumArtSwipingProvider = StateProvider<bool>((ref) => false);
+
+/// Raw panel slide position: 0.0 = collapsed, 1.0 = fully expanded
+/// Used for smooth crossfade between mini player and full player
+final panelSlidePositionProvider = StateProvider<double>((ref) => 0.0);

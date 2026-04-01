@@ -242,8 +242,10 @@ class _PlayerOverlay extends ConsumerWidget {
         // position: 0.0 = collapsed, 1.0 = fully expanded
         final invertedPosition = 1 - position;
         ref.read(navigationBarHeightProvider.notifier).state = navBarHeight * invertedPosition;
+        // Store raw slide position for smooth crossfade
+        ref.read(panelSlidePositionProvider.notifier).state = position;
       },
-      // Header = mini player (only visible when collapsed)
+      // Header = mini player (fades out smoothly as panel slides up)
       header: SizedBox(
         height: miniPlayerHeight + navBarHeight,
         width: screenSize.width,
@@ -252,7 +254,7 @@ class _PlayerOverlay extends ConsumerWidget {
           panelController: panelController,
         ),
       ),
-      // Panel = full player (only visible when expanded, hidden when collapsed)
+      // Panel = full player (fades in smoothly as panel slides up)
       panelBuilder: (scrollController) => _FullPlayerPanel(
         scrollController: scrollController,
         panelController: panelController,
@@ -261,8 +263,7 @@ class _PlayerOverlay extends ConsumerWidget {
   }
 }
 
-/// Full player panel that only shows when panel is expanded
-/// Hidden when collapsed to prevent showing behind mini player
+/// Full player panel that smoothly fades in as panel slides up (YouTube Music style)
 class _FullPlayerPanel extends ConsumerWidget {
   final ScrollController scrollController;
   final PanelController panelController;
@@ -274,26 +275,30 @@ class _FullPlayerPanel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final navBarHeight = ref.watch(navigationBarHeightProvider);
+    final slidePosition = ref.watch(panelSlidePositionProvider);
     
-    // Only show full player when panel is not almost collapsed
-    // When navBarHeight >= 68, panel is almost collapsed - hide full player
-    final isCollapsed = navBarHeight >= 68;
-    
-    if (isCollapsed) {
-      // Return transparent container when collapsed
+    // Don't build the full player at all when fully collapsed (performance)
+    if (slidePosition < 0.02) {
       return const SizedBox.shrink();
     }
     
-    return PlayerPage(
-      scrollController: scrollController,
-      panelController: panelController,
+    // Smooth fade-in: starts appearing at 5% slide, fully visible at 35%
+    final opacity = ((slidePosition - 0.05) / 0.30).clamp(0.0, 1.0);
+    
+    return Opacity(
+      opacity: opacity,
+      child: IgnorePointer(
+        ignoring: opacity < 0.5, // Don't accept touches until mostly visible
+        child: PlayerPage(
+          scrollController: scrollController,
+          panelController: panelController,
+        ),
+      ),
     );
   }
 }
 
-/// Mini player that only shows when panel is collapsed
-/// Hides when panel is expanded (like Spotube's PlayerOverlayCollapsedSection)
+/// Mini player that smoothly fades out as panel slides up (YouTube Music style)
 class _CollapsedMiniPlayer extends ConsumerWidget {
   final bool canShow;
   final PanelController panelController;
@@ -305,33 +310,36 @@ class _CollapsedMiniPlayer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final navBarHeight = ref.watch(navigationBarHeightProvider);
+    final slidePosition = ref.watch(panelSlidePositionProvider);
     
     // Hide when keyboard is visible
     final keyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
     if (keyboardVisible) return const SizedBox.shrink();
     
-    // Only show mini player when nav bar is at almost full height (panel almost collapsed)
-    // This prevents mini player from appearing too early during dismissal
-    final shouldShow = navBarHeight >= 68; // Wait until 95% collapsed before showing mini player
+    // Smooth fade-out: fully visible at 0%, completely gone at 30% slide
+    final opacity = (1.0 - (slidePosition / 0.30)).clamp(0.0, 1.0);
     
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 275),
-      child: canShow && shouldShow
-          ? Column(
-              key: const ValueKey('mini-player-visible'),
-              children: [
-                const EnhancedMiniPlayer(),
-                // IgnorePointer allows touches to pass through to nav bar below
-                const IgnorePointer(
-                  child: SizedBox(height: 72),
-                ),
-              ],
-            )
-          : const IgnorePointer(
-              key: ValueKey('mini-player-hidden'),
-              child: SizedBox(height: 64 + 72),
+    // Don't render at all when fully invisible (performance)
+    if (opacity <= 0.0 || !canShow) {
+      return const IgnorePointer(
+        child: SizedBox(height: 64 + 72),
+      );
+    }
+    
+    return Opacity(
+      opacity: opacity,
+      child: IgnorePointer(
+        ignoring: opacity < 0.5, // Don't accept touches when mostly faded
+        child: Column(
+          children: [
+            const EnhancedMiniPlayer(),
+            // IgnorePointer allows touches to pass through to nav bar below
+            const IgnorePointer(
+              child: SizedBox(height: 72),
             ),
+          ],
+        ),
+      ),
     );
   }
 }

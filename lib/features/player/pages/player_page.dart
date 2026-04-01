@@ -48,6 +48,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
   Animation<double>? _cascadeAnimation;
   int _animationDirection = 0; // -1 = from right (next), 1 = from left (prev)
   String? _previousTrackId;
+  bool _songChangedViaSwipe = false; // suppress cascade anim after swipe-triggered song change
   
   // Double-tap to like animation
   bool _showLikeAnimation = false;
@@ -137,7 +138,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
     _swipeOutController!.addStatusListener((status) {
       if (status == AnimationStatus.completed && _swipeOutAnimating) {
         _swipeOutAnimating = false;
-        // Now actually change the song
+        // Mark that this song change came from a swipe so the build method
+        // doesn't fire the cascade animation on top of it.
+        _songChangedViaSwipe = true;
+        // Change the song
         final audioService = AudioPlayerService();
         if (_swipeOutDirection == 1) {
           audioService.skipToNext();
@@ -530,7 +534,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
         // Update like status and trigger cascade animation when track changes
         if (_currentTrack?.id != track.id) {
           // Determine animation direction based on queue position
-          if (_previousTrackId != null && !_isSwiping) {
+          // Skip cascade animation if song changed via swipe (swipe already animated)
+          if (_previousTrackId != null && !_isSwiping && !_songChangedViaSwipe) {
             final prevIndex = audioService.queue.indexWhere((t) => t.id == _previousTrackId);
             final currentIndex = audioService.currentIndex;
             if (prevIndex >= 0 && prevIndex != currentIndex) {
@@ -541,6 +546,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
               });
             }
           }
+          _songChangedViaSwipe = false;
           _previousTrackId = _currentTrack?.id;
           _currentTrack = track;
           _isLiked = PlayHistoryService.instance.isLiked(track.id);

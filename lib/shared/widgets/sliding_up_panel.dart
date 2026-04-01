@@ -219,6 +219,7 @@ class _SlidingUpPanelState extends State<SlidingUpPanel>
 
   bool _scrollingEnabled = false;
   VelocityTracker _vt = new VelocityTracker.withKind(PointerDeviceKind.touch);
+  bool _panelGestureActive = false; // tracks if panel owns the current gesture
 
   bool _isPanelVisible = true;
 
@@ -461,17 +462,35 @@ class _SlidingUpPanelState extends State<SlidingUpPanel>
 
     return Listener(
       onPointerDown: (PointerDownEvent p) {
-        if (widget.gestureDisabled?.value == true) return;
+        // Always reset VelocityTracker on new touch to avoid stale data
+        _vt = VelocityTracker.withKind(PointerDeviceKind.touch);
+        if (widget.gestureDisabled?.value == true) {
+          _panelGestureActive = false;
+          return;
+        }
+        _panelGestureActive = true;
         _vt.addPosition(p.timeStamp, p.position);
       },
       onPointerMove: (PointerMoveEvent p) {
-        if (widget.gestureDisabled?.value == true) return;
-        _vt.addPosition(p.timeStamp,
-            p.position); // add current position for velocity tracking
+        // If disabled mid-gesture, abandon this gesture entirely
+        if (widget.gestureDisabled?.value == true) {
+          _panelGestureActive = false;
+          return;
+        }
+        if (!_panelGestureActive) return;
+        _vt.addPosition(p.timeStamp, p.position);
         _onGestureSlide(p.delta.dy);
       },
       onPointerUp: (PointerUpEvent p) {
-        if (widget.gestureDisabled?.value == true) return;
+        if (!_panelGestureActive) {
+          _panelGestureActive = false;
+          return;
+        }
+        if (widget.gestureDisabled?.value == true) {
+          _panelGestureActive = false;
+          return;
+        }
+        _panelGestureActive = false;
         _onGestureEnd(_vt.getVelocity());
       },
       child: child,

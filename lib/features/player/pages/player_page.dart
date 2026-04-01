@@ -57,10 +57,17 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
   bool _isSwiping = false;
   int _pendingSwipeDirection = 0; // -1 = prev, 0 = none, 1 = next
   
-  // Gesture state flags for horizontal drag on album art
-  // Using onHorizontalDrag* instead of onPan* lets Flutter's gesture arena
-  // naturally disambiguate: horizontal drags → album art, vertical drags → panel
-  bool _isHorizontalGesture = false;
+  // Raw pointer-based swipe detection (ViMusic approach)
+  // Bypasses Flutter's gesture arena entirely — no GestureDetector needed.
+  // This eliminates the "works every other time" bug caused by the gesture
+  // arena competing with the panel's Listener.
+  Offset? _pointerDownPosition;
+  bool _directionDecided = false;
+  bool _isHorizontalSwipe = false;
+  // Long-press detection for queue carousel
+  Timer? _longPressTimer;
+  static const _kTouchSlop = 10.0; // px before direction is decided
+  static const _kLongPressDuration = Duration(milliseconds: 500);
   
   // Seek bar scrubbing state - only seek on release, not during drag
   // This prevents issues when song is loading and user moves the slider
@@ -141,6 +148,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
   void dispose() {
     // Safety: ensure panel gesture is re-enabled if page is disposed mid-swipe
     panelGestureDisabledNotifier.value = false;
+    _longPressTimer?.cancel();
     _cascadeAnimationController?.dispose();
     _carouselAnimationController?.dispose();
     super.dispose();
@@ -634,63 +642,105 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                         );
                       }
                       
-                      // YouTube Music style: onHorizontalDrag* lets Flutter's
-                      // gesture arena cleanly separate horizontal (song change)
-                      // from vertical (panel dismiss). No manual angle math needed.
-                      return GestureDetector(
+                      // ViMusic approach: pure raw Listener for swipe detection.
+                      // Bypasses Flutter's gesture arena entirely, which eliminates
+                      // the "works every other time" bug. Direction is decided from
+                      // the first few pixels of movement, and horizontal swipes
+                      // disable the panel's Listener immediately.
+                      return Listener(
                         behavior: HitTestBehavior.opaque,
-                        onLongPress: _showQueueCarouselOverlay,
-                        onHorizontalDragStart: (details) {
-                          _isHorizontalGesture = true;
-                          // Synchronously disable panel's raw Listener
-                          panelGestureDisabledNotifier.value = true;
-                          ref.read(isAlbumArtSwipingProvider.notifier).state = true;
-                          setState(() {
-                            _isSwiping = true;
-                            _swipeOffset = 0.0;
-                            _pendingSwipeDirection = 0;
-                          });
-                        },
-                        onHorizontalDragUpdate: (details) {
-                          if (!_isHorizontalGesture) return;
-                          setState(() {
-                            _swipeOffset += details.delta.dx;
-                            if (_swipeOffset > 80) {
-                              _pendingSwipeDirection = -1;
-                            } else if (_swipeOffset < -80) {
-                              _pendingSwipeDirection = 1;
-                            } else {
-                              _pendingSwipeDirection = 0;
+                        onPointerDown: (event) {
+                          _pointerDownPosition = event.position;
+                          _directionDecided = false;
+                          _isHorizontalSwipe = false;
+                          // Start long-press timer for queue carousel
+                          _longPressTimer?.cancel();
+                          _longPressTimer = Timer(_kLongPressDuration, () {
+                            if (!_directionDecided && _pointerDownPosition != null) {
+                              _showQueueCarouselOverlay();
                             }
                           });
                         },
-                        onHorizontalDragEnd: (details) {
-                          panelGestureDisabledNotifier.value = false;
-                          ref.read(isAlbumArtSwipingProvider.notifier).state = false;
-                          final velocity = details.primaryVelocity ?? 0.0;
-                          final fastSwipe = velocity.abs() > 800 && _swipeOffset.abs() > 30;
+                        onPointerMove: (event) {
+                          if (_pointerDownPosition == null) return;
+                          final delta = event.position - _pointerDownPosition!;
+                          final dx = delta.dx.abs();
+                          final dy = delta.dy.abs();
                           
-                          if (_pendingSwipeDirection != 0 || fastSwipe) {
-                            final direction = fastSwipe && _pendingSwipeDirection == 0
-                                ? (velocity > 0 ? -1 : 1)
-                                : _pendingSwipeDirection;
-                            
-                            if (direction == 1) {
-                              audioService.skipToNext();
-                            } else if (direction == -1) {
-                              audioService.skipToPrevious(forceSkip: true);
-                            }
+                          // Cancel long-press if finger moved
+                          if (dx > 5 || dy > 5) {
+                            _longPressTimer?.cancel();
                           }
                           
-                          setState(() {
-                            _isSwiping = false;
-                            _swipeOffset = 0.0;
-                            _pendingSwipeDirection = 0;
-                          });
-                          _isHorizontalGesture = false;
+                          // Decide direction once touch slop is exceeded
+                          if (!_directionDecided && (dx > _kTouchSlop || dy > _kTouchSlop)) {
+                            _directionDecided = true;
+                            if (dx > dy) {
+                              // Horizontal swipe detected
+                              _isHorizontalSwipe = true;
+                              panelGestureDisabledNotifier.value = true;
+                              ref.read(isAlbumArtSwipingProvider.notifier).state = true;
+                              setState(() {
+                                _isSwiping = true;
+                                _swipeOffset = 0.0;
+                                _pendingSwipeDirection = 0;
+                              });
+                            }
+                            // If vertical, do nothing — let the panel handle it
+                          }
+                          
+                          // Track horizontal offset while swiping
+                          if (_isHorizontalSwipe) {
+                            setState(() {
+                              _swipeOffset = delta.dx;
+                              if (_swipeOffset > 80) {
+                                _pendingSwipeDirection = -1;
+                              } else if (_swipeOffset < -80) {
+                                _pendingSwipeDirection = 1;
+                              } else {
+                                _pendingSwipeDirection = 0;
+                              }
+                            });
+                          }
                         },
-                        onHorizontalDragCancel: () {
-                          // Always clean up state if gesture is cancelled
+                        onPointerUp: (event) {
+                          _longPressTimer?.cancel();
+                          
+                          if (_isHorizontalSwipe) {
+                            // Evaluate swipe result
+                            final totalDx = _pointerDownPosition != null
+                                ? (event.position - _pointerDownPosition!).dx : 0.0;
+                            final fastSwipe = totalDx.abs() > 30;
+                            
+                            if (_pendingSwipeDirection != 0 || fastSwipe) {
+                              final direction = fastSwipe && _pendingSwipeDirection == 0
+                                  ? (totalDx > 0 ? -1 : 1)
+                                  : _pendingSwipeDirection;
+                              
+                              if (direction == 1) {
+                                audioService.skipToNext();
+                              } else if (direction == -1) {
+                                audioService.skipToPrevious(forceSkip: true);
+                              }
+                            }
+                            
+                            // Clean up
+                            panelGestureDisabledNotifier.value = false;
+                            ref.read(isAlbumArtSwipingProvider.notifier).state = false;
+                            setState(() {
+                              _isSwiping = false;
+                              _swipeOffset = 0.0;
+                              _pendingSwipeDirection = 0;
+                            });
+                          }
+                          
+                          _pointerDownPosition = null;
+                          _directionDecided = false;
+                          _isHorizontalSwipe = false;
+                          panelGestureDisabledNotifier.value = false;
+                        },
+                        onPointerCancel: (_) {
+                          _longPressTimer?.cancel();
                           panelGestureDisabledNotifier.value = false;
                           ref.read(isAlbumArtSwipingProvider.notifier).state = false;
                           setState(() {
@@ -698,7 +748,9 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                             _swipeOffset = 0.0;
                             _pendingSwipeDirection = 0;
                           });
-                          _isHorizontalGesture = false;
+                          _pointerDownPosition = null;
+                          _directionDecided = false;
+                          _isHorizontalSwipe = false;
                         },
                         child: SizedBox(
                           width: size.width,
@@ -751,54 +803,90 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                   
                   const Gap(24),
                   
-                  // Track Info & Like - Swipeable
-                  GestureDetector(
+                  // Track Info & Like - Swipeable (pure raw Listener, same approach as album art)
+                  Listener(
                     behavior: HitTestBehavior.opaque,
-                    onHorizontalDragStart: (details) {
-                      _isHorizontalGesture = true;
-                      panelGestureDisabledNotifier.value = true;
-                      setState(() {
-                        _isSwiping = true;
-                        _swipeOffset = 0.0;
-                        _pendingSwipeDirection = 0;
-                      });
+                    onPointerDown: (event) {
+                      _pointerDownPosition = event.position;
+                      _directionDecided = false;
+                      _isHorizontalSwipe = false;
                     },
-                    onHorizontalDragUpdate: (details) {
-                      if (!_isHorizontalGesture) return;
-                      setState(() {
-                        _swipeOffset += details.delta.dx;
-                        if (_swipeOffset > 80) {
-                          _pendingSwipeDirection = -1;
-                        } else if (_swipeOffset < -80) {
-                          _pendingSwipeDirection = 1;
-                        } else {
-                          _pendingSwipeDirection = 0;
-                        }
-                      });
-                    },
-                    onHorizontalDragEnd: (details) {
-                      panelGestureDisabledNotifier.value = false;
-                      final velocity = details.primaryVelocity ?? 0.0;
-                      final fastSwipe = velocity.abs() > 800 && _swipeOffset.abs() > 30;
+                    onPointerMove: (event) {
+                      if (_pointerDownPosition == null) return;
+                      final delta = event.position - _pointerDownPosition!;
+                      final dx = delta.dx.abs();
+                      final dy = delta.dy.abs();
                       
-                      if (_pendingSwipeDirection != 0 || fastSwipe) {
-                        final direction = fastSwipe && _pendingSwipeDirection == 0
-                            ? (velocity > 0 ? -1 : 1)
-                            : _pendingSwipeDirection;
-                        
-                        if (direction == 1) {
-                          audioService.skipToNext();
-                        } else if (direction == -1) {
-                          audioService.skipToPrevious(forceSkip: true);
+                      if (!_directionDecided && (dx > _kTouchSlop || dy > _kTouchSlop)) {
+                        _directionDecided = true;
+                        if (dx > dy) {
+                          _isHorizontalSwipe = true;
+                          panelGestureDisabledNotifier.value = true;
+                          ref.read(isAlbumArtSwipingProvider.notifier).state = true;
+                          setState(() {
+                            _isSwiping = true;
+                            _swipeOffset = 0.0;
+                            _pendingSwipeDirection = 0;
+                          });
                         }
                       }
                       
+                      if (_isHorizontalSwipe) {
+                        setState(() {
+                          _swipeOffset = delta.dx;
+                          if (_swipeOffset > 80) {
+                            _pendingSwipeDirection = -1;
+                          } else if (_swipeOffset < -80) {
+                            _pendingSwipeDirection = 1;
+                          } else {
+                            _pendingSwipeDirection = 0;
+                          }
+                        });
+                      }
+                    },
+                    onPointerUp: (event) {
+                      if (_isHorizontalSwipe) {
+                        final totalDx = _pointerDownPosition != null
+                            ? (event.position - _pointerDownPosition!).dx : 0.0;
+                        final fastSwipe = totalDx.abs() > 30;
+                        
+                        if (_pendingSwipeDirection != 0 || fastSwipe) {
+                          final direction = fastSwipe && _pendingSwipeDirection == 0
+                              ? (totalDx > 0 ? -1 : 1)
+                              : _pendingSwipeDirection;
+                          
+                          if (direction == 1) {
+                            audioService.skipToNext();
+                          } else if (direction == -1) {
+                            audioService.skipToPrevious(forceSkip: true);
+                          }
+                        }
+                        
+                        panelGestureDisabledNotifier.value = false;
+                        ref.read(isAlbumArtSwipingProvider.notifier).state = false;
+                        setState(() {
+                          _isSwiping = false;
+                          _swipeOffset = 0.0;
+                          _pendingSwipeDirection = 0;
+                        });
+                      }
+                      
+                      _pointerDownPosition = null;
+                      _directionDecided = false;
+                      _isHorizontalSwipe = false;
+                      panelGestureDisabledNotifier.value = false;
+                    },
+                    onPointerCancel: (_) {
+                      panelGestureDisabledNotifier.value = false;
+                      ref.read(isAlbumArtSwipingProvider.notifier).state = false;
                       setState(() {
                         _isSwiping = false;
                         _swipeOffset = 0.0;
                         _pendingSwipeDirection = 0;
                       });
-                      _isHorizontalGesture = false;
+                      _pointerDownPosition = null;
+                      _directionDecided = false;
+                      _isHorizontalSwipe = false;
                     },
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -854,8 +942,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                           ),
                         ],
                       ),
-                    ),
-                  ),
+                    ), // Padding (child of Listener)
+                  ), // Listener
                   
                   const Gap(24),
                   

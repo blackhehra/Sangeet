@@ -1027,6 +1027,11 @@ class AudioPlayerService {
       }
     }
 
+    // Emit new track immediately so the UI never flashes the old track
+    // during intermediate rebuilds caused by _player.stop() stream events.
+    _currentTrackController.add(_queue[_currentIndex]);
+    _bufferingController.add(true);
+
     await _playCurrentTrack();
   }
 
@@ -1073,6 +1078,11 @@ class AudioPlayerService {
       }
     }
 
+    // Emit new track immediately so the UI never flashes the old track
+    // during intermediate rebuilds caused by _player.stop() stream events.
+    _currentTrackController.add(_queue[_currentIndex]);
+    _bufferingController.add(true);
+
     await _playCurrentTrack();
   }
 
@@ -1091,6 +1101,12 @@ class AudioPlayerService {
     await _player.stop();
     
     _currentIndex = index;
+
+    // Emit new track immediately so the UI never flashes the old track
+    // during intermediate rebuilds caused by _player.stop() stream events.
+    _currentTrackController.add(_queue[_currentIndex]);
+    _bufferingController.add(true);
+
     await _playCurrentTrack();
   }
 

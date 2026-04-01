@@ -849,7 +849,9 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                           _directionDecided = false;
                           _isHorizontalSwipe = false;
                         },
-                        child: SizedBox(
+                        child: Opacity(
+                          opacity: _waitingForTrackChange ? 0.0 : 1.0,
+                          child: SizedBox(
                           width: size.width,
                           height: artSize,
                           child: Stack(
@@ -893,6 +895,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                               ),
                             ],
                           ),
+                        ),
                         ),
                       );
                     },

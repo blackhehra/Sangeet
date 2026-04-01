@@ -49,6 +49,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
   int _animationDirection = 0; // -1 = from right (next), 1 = from left (prev)
   String? _previousTrackId;
   bool _songChangedViaSwipe = false; // suppress cascade anim after swipe-triggered song change
+  bool _waitingForTrackChange = false; // keep art off-screen until track actually changes
+  double _waitingSwipeOutTo = 0.0; // the off-screen offset to hold while waiting
   
   // Double-tap to like animation
   bool _showLikeAnimation = false;
@@ -141,6 +143,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
         // Mark that this song change came from a swipe so the build method
         // doesn't fire the cascade animation on top of it.
         _songChangedViaSwipe = true;
+        // Keep art pinned off-screen until the track actually changes.
+        // This prevents the old track from flashing back at center.
+        _waitingForTrackChange = true;
+        _waitingSwipeOutTo = _swipeOutTo;
         // Change the song
         final audioService = AudioPlayerService();
         if (_swipeOutDirection == 1) {
@@ -153,10 +159,21 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
         ref.read(isAlbumArtSwipingProvider.notifier).state = false;
         setState(() {
           _isSwiping = false;
-          _swipeOffset = 0.0;
+          _swipeOffset = _waitingSwipeOutTo; // keep off-screen, don't reset to 0
           _pendingSwipeDirection = 0;
         });
         _swipeOutDirection = 0;
+        // Safety: if track doesn't change within 500ms (e.g. end of queue),
+        // reset art position so it doesn't stay stuck off-screen.
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted && _waitingForTrackChange) {
+            _waitingForTrackChange = false;
+            _songChangedViaSwipe = false;
+            setState(() {
+              _swipeOffset = 0.0;
+            });
+          }
+        });
       }
     });
   }
@@ -547,6 +564,11 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
             }
           }
           _songChangedViaSwipe = false;
+          // Track changed — if we were holding art off-screen, reset now
+          if (_waitingForTrackChange) {
+            _waitingForTrackChange = false;
+            _swipeOffset = 0.0;
+          }
           _previousTrackId = _currentTrack?.id;
           _currentTrack = track;
           _isLiked = PlayHistoryService.instance.isLiked(track.id);

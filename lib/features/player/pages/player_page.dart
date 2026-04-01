@@ -57,6 +57,14 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
   bool _isSwiping = false;
   int _pendingSwipeDirection = 0; // -1 = prev, 0 = none, 1 = next
   
+  // Swipe-out animation: slides album art off-screen before changing song
+  // Gives visual feedback even on fast swipes
+  AnimationController? _swipeOutController;
+  double _swipeOutFrom = 0.0;   // starting offset when animation begins
+  double _swipeOutTo = 0.0;     // target offset (off-screen)
+  int _swipeOutDirection = 0;   // 1 = next, -1 = prev (song change direction)
+  bool _swipeOutAnimating = false;
+  
   // Raw pointer-based swipe detection (ViMusic approach)
   // Bypasses Flutter's gesture arena entirely — no GestureDetector needed.
   // This eliminates the "works every other time" bug caused by the gesture
@@ -84,6 +92,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
     super.initState();
     _initCascadeAnimation();
     _initCarouselAnimation();
+    _initSwipeOutAnimation();
   }
   
   void _initCascadeAnimation() {
@@ -111,6 +120,60 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
     if (_cascadeAnimationController == null) return;
     _animationDirection = direction;
     _cascadeAnimationController!.forward(from: 0.0);
+  }
+  
+  void _initSwipeOutAnimation() {
+    _swipeOutController = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+    _swipeOutController!.addListener(() {
+      if (!_swipeOutAnimating) return;
+      final t = Curves.easeOut.transform(_swipeOutController!.value);
+      setState(() {
+        _swipeOffset = _swipeOutFrom + (_swipeOutTo - _swipeOutFrom) * t;
+      });
+    });
+    _swipeOutController!.addStatusListener((status) {
+      if (status == AnimationStatus.completed && _swipeOutAnimating) {
+        _swipeOutAnimating = false;
+        // Now actually change the song
+        final audioService = AudioPlayerService();
+        if (_swipeOutDirection == 1) {
+          audioService.skipToNext();
+        } else if (_swipeOutDirection == -1) {
+          audioService.skipToPrevious(forceSkip: true);
+        }
+        // Reset swipe & panel state
+        panelGestureDisabledNotifier.value = false;
+        ref.read(isAlbumArtSwipingProvider.notifier).state = false;
+        setState(() {
+          _isSwiping = false;
+          _swipeOffset = 0.0;
+          _pendingSwipeDirection = 0;
+        });
+        _swipeOutDirection = 0;
+      }
+    });
+  }
+  
+  /// Animate the album art sliding off-screen, then change song
+  void _animateSwipeOutAndChangeSong(int direction, double currentOffset, double screenWidth) {
+    _swipeOutAnimating = true;
+    _swipeOutDirection = direction;
+    _swipeOutFrom = currentOffset;
+    // Slide to ~50% off-screen in the swipe direction
+    _swipeOutTo = direction == 1 ? -screenWidth * 0.5 : screenWidth * 0.5;
+    _swipeOutController!.forward(from: 0.0);
+  }
+  
+  /// Animate the album art snapping back to center (no song change)
+  void _animateSnapBack(double currentOffset) {
+    _swipeOutAnimating = true;
+    _swipeOutDirection = 0; // no song change
+    _swipeOutFrom = currentOffset;
+    _swipeOutTo = 0.0;
+    _swipeOutController!.forward(from: 0.0);
   }
   
   void _initCarouselAnimation() {
@@ -149,6 +212,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
     // Safety: ensure panel gesture is re-enabled if page is disposed mid-swipe
     panelGestureDisabledNotifier.value = false;
     _longPressTimer?.cancel();
+    _swipeOutController?.dispose();
     _cascadeAnimationController?.dispose();
     _carouselAnimationController?.dispose();
     super.dispose();
@@ -712,32 +776,37 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                                 ? (event.position - _pointerDownPosition!).dx : 0.0;
                             final fastSwipe = totalDx.abs() > 30;
                             
+                            int direction = 0;
                             if (_pendingSwipeDirection != 0 || fastSwipe) {
-                              final direction = fastSwipe && _pendingSwipeDirection == 0
+                              direction = fastSwipe && _pendingSwipeDirection == 0
                                   ? (totalDx > 0 ? -1 : 1)
                                   : _pendingSwipeDirection;
-                              
-                              if (direction == 1) {
-                                audioService.skipToNext();
-                              } else if (direction == -1) {
-                                audioService.skipToPrevious(forceSkip: true);
-                              }
                             }
                             
-                            // Clean up
-                            panelGestureDisabledNotifier.value = false;
-                            ref.read(isAlbumArtSwipingProvider.notifier).state = false;
-                            setState(() {
-                              _isSwiping = false;
-                              _swipeOffset = 0.0;
-                              _pendingSwipeDirection = 0;
-                            });
+                            if (direction != 0) {
+                              // Animate slide-out, then change song
+                              _animateSwipeOutAndChangeSong(direction, _swipeOffset, size.width);
+                            } else if (_swipeOffset.abs() > 1) {
+                              // Swiped but not enough — animate snap back to center
+                              _animateSnapBack(_swipeOffset);
+                            } else {
+                              // Barely moved — just reset instantly
+                              panelGestureDisabledNotifier.value = false;
+                              ref.read(isAlbumArtSwipingProvider.notifier).state = false;
+                              setState(() {
+                                _isSwiping = false;
+                                _swipeOffset = 0.0;
+                                _pendingSwipeDirection = 0;
+                              });
+                            }
                           }
                           
                           _pointerDownPosition = null;
                           _directionDecided = false;
                           _isHorizontalSwipe = false;
-                          panelGestureDisabledNotifier.value = false;
+                          if (!_swipeOutAnimating) {
+                            panelGestureDisabledNotifier.value = false;
+                          }
                         },
                         onPointerCancel: (_) {
                           _longPressTimer?.cancel();
@@ -850,31 +919,34 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                             ? (event.position - _pointerDownPosition!).dx : 0.0;
                         final fastSwipe = totalDx.abs() > 30;
                         
+                        int direction = 0;
                         if (_pendingSwipeDirection != 0 || fastSwipe) {
-                          final direction = fastSwipe && _pendingSwipeDirection == 0
+                          direction = fastSwipe && _pendingSwipeDirection == 0
                               ? (totalDx > 0 ? -1 : 1)
                               : _pendingSwipeDirection;
-                          
-                          if (direction == 1) {
-                            audioService.skipToNext();
-                          } else if (direction == -1) {
-                            audioService.skipToPrevious(forceSkip: true);
-                          }
                         }
                         
-                        panelGestureDisabledNotifier.value = false;
-                        ref.read(isAlbumArtSwipingProvider.notifier).state = false;
-                        setState(() {
-                          _isSwiping = false;
-                          _swipeOffset = 0.0;
-                          _pendingSwipeDirection = 0;
-                        });
+                        if (direction != 0) {
+                          _animateSwipeOutAndChangeSong(direction, _swipeOffset, size.width);
+                        } else if (_swipeOffset.abs() > 1) {
+                          _animateSnapBack(_swipeOffset);
+                        } else {
+                          panelGestureDisabledNotifier.value = false;
+                          ref.read(isAlbumArtSwipingProvider.notifier).state = false;
+                          setState(() {
+                            _isSwiping = false;
+                            _swipeOffset = 0.0;
+                            _pendingSwipeDirection = 0;
+                          });
+                        }
                       }
                       
                       _pointerDownPosition = null;
                       _directionDecided = false;
                       _isHorizontalSwipe = false;
-                      panelGestureDisabledNotifier.value = false;
+                      if (!_swipeOutAnimating) {
+                        panelGestureDisabledNotifier.value = false;
+                      }
                     },
                     onPointerCancel: (_) {
                       panelGestureDisabledNotifier.value = false;

@@ -26,12 +26,10 @@ import 'package:sangeet/shared/providers/custom_playlist_provider.dart';
 import 'package:sangeet/features/player/widgets/queue_carousel_overlay.dart' show InlineQueueCarousel;
 
 class PlayerPage extends ConsumerStatefulWidget {
-  final ScrollController? scrollController;
   final PanelController? panelController;
   
   const PlayerPage({
     super.key,
-    this.scrollController,
     this.panelController,
   });
 
@@ -508,7 +506,6 @@ class _PlayerPageState extends ConsumerState<PlayerPage> with TickerProviderStat
                   return false; // Allow normal scroll
                 },
                 child: SingleChildScrollView(
-                  controller: widget.scrollController,
                   physics: _isSwiping ? const NeverScrollableScrollPhysics() : const ClampingScrollPhysics(),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(

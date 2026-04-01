@@ -255,8 +255,11 @@ class _PlayerOverlay extends ConsumerWidget {
         ),
       ),
       // Panel = full player (fades in smoothly as panel slides up)
-      panelBuilder: (scrollController) => _FullPlayerPanel(
-        scrollController: scrollController,
+      // Using `panel` instead of `panelBuilder` so the SlidingUpPanel uses
+      // a GestureDetector (onVerticalDrag*) rather than a raw Listener.
+      // This lets Flutter's gesture arena properly disambiguate horizontal
+      // swipes (song change) from vertical drags (panel dismiss).
+      panel: _FullPlayerPanel(
         panelController: panelController,
       ),
     );
@@ -265,11 +268,9 @@ class _PlayerOverlay extends ConsumerWidget {
 
 /// Full player panel that smoothly fades in as panel slides up (YouTube Music style)
 class _FullPlayerPanel extends ConsumerWidget {
-  final ScrollController scrollController;
   final PanelController panelController;
   
   const _FullPlayerPanel({
-    required this.scrollController,
     required this.panelController,
   });
 
@@ -290,7 +291,6 @@ class _FullPlayerPanel extends ConsumerWidget {
       child: IgnorePointer(
         ignoring: opacity < 0.5, // Don't accept touches until mostly visible
         child: PlayerPage(
-          scrollController: scrollController,
           panelController: panelController,
         ),
       ),
